@@ -65,14 +65,23 @@ export function Palette({ recent, onOpenFile, onOpenFolder, onClose }: { recent:
 
 // ── Done ───────────────────────────────────────────────────────────────
 
-export function DoneDialog({ host, onClose, onDone }: { host: string; onClose: () => void; onDone: (message: string) => void }) {
+export function DoneDialog({ host, general: initial, onClose, onDone }: { host: string; general: string; onClose: () => void; onDone: (message: string) => void }) {
   const [preview, setPreview] = useState<{ feedback: string; deliveryNote: string } | null>(null);
+  const [general, setGeneral] = useState(initial);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
-  useEffect(() => { get("/api/review/preview").then(setPreview).catch(e => setError(e.message)); }, []);
+  const saved = useRef(Promise.resolve());
+  const load = () => get("/api/review/preview").then(setPreview).catch(e => setError(e.message));
+  useEffect(() => { load(); }, []);
+  // The general note is saved as you type, so closing the dialog keeps it.
+  useEffect(() => {
+    if (general === initial) return;
+    const timer = setTimeout(() => { saved.current = post("/api/review/general", { text: general }).then(load).catch(e => setError(e.message)); }, 250);
+    return () => clearTimeout(timer);
+  }, [general]);
   async function send() {
     setSending(true); setError("");
-    try { const result = await post("/api/review/done"); onDone(result.message); }
+    try { await post("/api/review/general", { text: general }); await saved.current; const result = await post("/api/review/done"); onDone(result.message); }
     catch (e) { setError((e as Error).message); setSending(false); }
   }
   return (
@@ -83,12 +92,14 @@ export function DoneDialog({ host, onClose, onDone }: { host: string; onClose: (
       <div class="dialog done" role="dialog" aria-label="Send notes">
         <h2>Send notes to {host}</h2>
         <p class="muted">{preview?.deliveryNote ?? "Preparing…"}</p>
-        {preview && (preview.feedback ? <pre class="preview">{preview.feedback}</pre> : <p class="empty pad">No notes yet.</p>)}
+        <textarea class="general" rows={2} value={general} placeholder="General note (optional) — e.g. “run the tests afterwards”" aria-label="General note"
+          onInput={e => setGeneral((e.target as HTMLTextAreaElement).value)} />
+        {preview && (preview.feedback ? <pre class="preview">{preview.feedback}</pre> : <p class="empty pad">No notes yet — select text in a reply or file, or write a general note.</p>)}
         {error && <p class="error">{error}</p>}
         <footer>
           <span class="hint">After sending, “Since last Done” starts from here.</span>
           <button type="button" onClick={onClose}>Keep reviewing</button>
-          <button type="button" class="primary" autoFocus disabled={!preview?.feedback || sending} onClick={send}>{sending ? "Sending…" : `Send to ${host}`}<kbd>⌘↵</kbd></button>
+          <button type="button" class="primary" autoFocus disabled={(!preview?.feedback && !general.trim()) || sending} onClick={send}>{sending ? "Sending…" : `Send to ${host}`}<kbd>⌘↵</kbd></button>
         </footer>
       </div>
     </div>
@@ -136,7 +147,8 @@ const SHORTCUTS: [string, string][] = [
   ["n / N", "Next / previous note"],
   ["d", "Toggle Document / Diff"],
   ["s", "Toggle rendered / source (Markdown)"],
-  ["1 – 4", "With text selected: Change, Ask, Keep, Replace"],
+  ["1 – 4", "With text selected: Change, Reply, Question, Keep"],
+  ["↵", "With text selected: the suggested intent"],
   ["⌘↵", "In a note: save · otherwise: Done"],
   ["[", "Toggle the sidebar"],
   ["?", "This help"],

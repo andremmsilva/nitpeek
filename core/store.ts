@@ -13,14 +13,21 @@ import { buildDiff, diffStat, highlightLines, isMarkdownPath, languageOf, render
 import { BlobStore, hashText, normalize, readSnapshot, sameRef, type SnapRef, type Snapshot } from "./snapshot.js";
 import { formatFeedback, type FeedbackItem } from "./feedback.js";
 
-export type Intent = "change" | "ask" | "keep" | "replace";
-export const INTENTS: Intent[] = ["change", "ask", "keep", "replace"];
+export type Intent = "change" | "reply" | "question" | "keep";
+export const INTENTS: Intent[] = ["change", "reply", "question", "keep"];
+
+/** Notes saved before the intents were reworked: ask → question, replace → change with exact text. */
+function migrateIntent(note: any) {
+  if (note?.intent === "ask") note.intent = "question";
+  else if (note?.intent === "replace") note.intent = "change";
+  return note;
+}
 
 export type Note = {
   id: string;
   intent: Intent;
   text: string;
-  /** Replacement text for `replace` notes. */
+  /** Exact text a `change` should put in place of the quote. */
   replacement?: string;
   /** The selected text exactly as displayed. */
   quote: string;
@@ -54,6 +61,8 @@ type State = {
   locations?: string[];
   checkpoint?: Checkpoint;
   activity?: { state: Activity; since: number };
+  /** A note about the review as a whole, not tied to any text. */
+  general?: string;
 };
 
 export type Activity = "working" | "idle" | "blocked";
@@ -96,7 +105,10 @@ export class ReviewStore {
     if (existsSync(statePath)) {
       try {
         const saved = JSON.parse(readFileSync(statePath, "utf8"));
-        if (saved?.schema === 2) this.state = saved;
+        if (saved?.schema === 2) {
+          this.state = saved;
+          for (const notes of Object.values(this.state.drafts)) notes.forEach(migrateIntent);
+        }
       } catch { /* unreadable state starts fresh */ }
     }
   }
@@ -395,6 +407,7 @@ export class ReviewStore {
         ...(this.state.locations ?? []).filter(p => existsSync(p) && p !== this.projectRoot()).map(p => ({ path: p, label: `${basename(dirname(p))}/${basename(p)}` })),
       ],
       notes,
+      general: this.state.general ?? "",
       latestResponse: this.state.latestResponse ?? null,
     };
   }
@@ -451,7 +464,7 @@ export class ReviewStore {
   saveNotes(path: string, input: unknown) {
     if (typeof path !== "string" || (!this.state.files[path] && !this.state.responses[path])) throw new ValidationError("Unknown document");
     if (!Array.isArray(input) || input.length > MAX_NOTES) throw new ValidationError("Invalid notes");
-    const notes = input.map((n: any): Note => {
+    const notes = input.map(migrateIntent).map((n: any): Note => {
       const valid = n && typeof n.id === "string" && /^[\w-]{1,64}$/.test(n.id) && INTENTS.includes(n.intent)
         && typeof n.text === "string" && n.text.length <= 20000 && typeof n.quote === "string" && n.quote.length <= 100000
         && (n.replacement === undefined || typeof n.replacement === "string") && (n.source === undefined || typeof n.source === "string")
@@ -485,10 +498,17 @@ export class ReviewStore {
       const live = readSnapshot(path);
       items.push({ kind: "file", label: this.display(path), live: live.text, notes: this.state.drafts[path], version: ref => ref ? this.blobs.get({ hash: ref }).text : null });
     }
-    return formatFeedback(items);
+    return formatFeedback(items, this.state.general);
   }
 
-  clearDrafts() { this.state.drafts = {}; this.save(); }
+  setGeneral(text: unknown) {
+    if (typeof text !== "string" || text.length > 20000) throw new ValidationError("Invalid general note");
+    if (text.trim()) this.state.general = text; else delete this.state.general;
+    this.save();
+    return { ok: true };
+  }
+
+  clearDrafts() { this.state.drafts = {}; delete this.state.general; this.save(); }
 
   /** Everything seen so far becomes the baseline of "Since last Done". */
   checkpoint() {

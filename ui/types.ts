@@ -1,9 +1,9 @@
-export type Intent = "change" | "ask" | "keep" | "replace";
+export type Intent = "change" | "reply" | "question" | "keep";
 export const INTENTS: { id: Intent; label: string; hint: string; key: string }[] = [
-  { id: "change", label: "Change", hint: "Ask the agent to change this", key: "1" },
-  { id: "ask", label: "Ask", hint: "A question — the agent answers, no edits", key: "2" },
-  { id: "keep", label: "Keep", hint: "Leave this as it is", key: "3" },
-  { id: "replace", label: "Replace", hint: "Replace with exact text", key: "4" },
+  { id: "change", label: "Change", hint: "The agent changes this — optionally to your exact text", key: "1" },
+  { id: "reply", label: "Reply", hint: "Your answer to what the agent asked or offered — it acts on it", key: "2" },
+  { id: "question", label: "Question", hint: "The agent only answers — no edits for it", key: "3" },
+  { id: "keep", label: "Keep", hint: "The agent leaves this as it is", key: "4" },
 ];
 
 export type Note = {
@@ -23,7 +23,7 @@ export type Overview = {
   sessionId: string; cwd: string; host: string; demo: boolean;
   activity: Activity; checkpoint: { at: number } | null;
   since: ScopeView; session: ScopeView; requests: RequestItem[]; opened: FileItem[];
-  roots: { path: string; label: string }[]; notes: number; latestResponse: string | null;
+  roots: { path: string; label: string }[]; notes: number; general: string; latestResponse: string | null;
   focus: number; target: { path?: string; folder?: string };
 };
 

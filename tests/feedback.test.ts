@@ -22,15 +22,16 @@ suite("feedback: intents, locations, relocation", () => {
   text = formatFeedback([{ kind: "file", label: "a.ts", live: null, version, notes: [note(at("line two"))] }]);
   assert.match(text, /file no longer exists; was line 2/);
 
-  // Multi-line ranges, removed text, replace, ask/keep legend.
+  // Multi-line ranges, removed text, exact replacement, legend for the intents used.
   text = formatFeedback([{ kind: "file", label: "a.ts", live: reviewed, version, notes: [
-    note({ ...at("line two\nconst"), intent: "ask", text: "Why?" }),
+    note({ ...at("line two\nconst"), intent: "question", text: "Why?" }),
     note({ ...at("line four"), side: "old", intent: "keep", text: "" }),
-    note({ ...at("line one"), intent: "replace", replacement: "first line\nsecond", text: "" }),
-  ] }]);
-  assert.match(text, /ask = just answer, don't edit for it · keep = leave it as it is · replace = apply exactly that replacement/);
-  assert.match(text, /\[1\] replace · a\.ts:1\n- line one\n\+ first line\n\+ second/);
-  assert.match(text, /\[2\] ask · a\.ts:2-3\n> line two\n> const\nWhy\?/);
+    note({ ...at("line one"), intent: "change", replacement: "first line\nsecond", text: "" }),
+  ] }], "Run the tests afterwards.");
+  assert.match(text, /\nquestion = just answer, don't edit for it · keep = leave it as it is · -\/\+ = apply exactly that replacement\n\nGeneral: Run the tests afterwards\.\n\n\[1\]/);
+  assert.doesNotMatch(text, /reply =/);
+  assert.match(text, /\[1\] change · a\.ts:1\n- line one\n\+ first line\n\+ second/);
+  assert.match(text, /\[2\] question · a\.ts:2-3\n> line two\n> const\nWhy\?/);
   assert.match(text, /\[3\] keep · a\.ts \(removed lines, were 4\)\n> line four$/);
 
   // Responses: prompt as reference once, then "same response"; long quotes are trimmed.
@@ -44,6 +45,9 @@ suite("feedback: intents, locations, relocation", () => {
   assert.match(text, /\[2\] keep · same response\n> row 3$/);
 
   assert.equal(formatFeedback([]), "");
+  assert.equal(formatFeedback([], "Just run the tests."), "Review note:\nJust run the tests.");
+  text = formatFeedback([{ kind: "response", prompt: "p", latest: true, text: "", notes: [note({ quote: "Want me to delete them?", start: 0, end: 5, ref: null, intent: "reply", text: "yes, go ahead" })] }]);
+  assert.match(text, /reply = my answer to what you asked or offered — act on it\n\n\[1\] reply · your response to "p"\n> Want me to delete them\?\nyes, go ahead/);
 });
 
 suite("feedback: context picks the right repeated quote", () => {

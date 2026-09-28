@@ -16,7 +16,12 @@ type Props = {
   onBusy: (busy: boolean) => void;
 };
 
-type Draft = { anchor: Anchor; view: "document" | "diff"; intent: Intent; text: string; replacement: string; editing?: string };
+/** `exact`: replacement text for a change, or null when the note has none. */
+type Draft = { anchor: Anchor; view: "document" | "diff"; intent: Intent; text: string; exact: string | null; editing?: string };
+
+/** A selection in a reply that asks or offers something is most likely answered, not changed. */
+const OFFER = /\?\s*["”»)]?\s*$|\b(queres|quer que|posso|podes|se quiseres|diz[- ]me|preferes|want me to|should i|shall i|do you want|would you like|let me know|if you want|prefer)\b/i;
+export const suggestIntent = (doc: Doc, quote: string): Intent => doc.kind === "response" && OFFER.test(quote.trim()) ? "reply" : "change";
 
 const newId = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const intentOf = (id: Intent) => INTENTS.find(i => i.id === id)!;
@@ -170,15 +175,16 @@ export function DocView(props: Props) {
   function openComposer(target: { anchor: Anchor; view: "document" | "diff" }, intent: Intent) {
     setToolbar(null);
     getSelection()?.removeAllRanges();
-    setDraft({ ...target, intent, text: "", replacement: intent === "replace" ? target.anchor.quote : "" });
+    setDraft({ ...target, intent, text: "", exact: null });
   }
 
-  const canSave = (d: Draft) => d.intent === "keep" || (d.intent === "replace" ? d.replacement !== d.anchor.quote : !!d.text.trim());
+  const hasExact = (d: Draft) => d.intent === "change" && d.exact !== null && d.exact !== d.anchor.quote;
+  const canSave = (d: Draft) => d.intent === "keep" || !!d.text.trim() || hasExact(d);
 
   function save() {
     if (!draft || !canSave(draft)) return;
     if (draft.editing) {
-      setNotes(notes.map(n => n.id === draft.editing ? { ...n, intent: draft.intent, text: draft.text, ...(draft.intent === "replace" ? { replacement: draft.replacement } : { replacement: undefined }) } : n));
+      setNotes(notes.map(n => n.id === draft.editing ? { ...n, intent: draft.intent, text: draft.text, replacement: hasExact(draft) ? draft.exact! : undefined } : n));
     } else {
       const targets = targetsFor(doc, view);
       const side = draft.anchor.side === "old" ? targets.old! : targets.new;
@@ -187,7 +193,7 @@ export function DocView(props: Props) {
         view: draft.view, ref: side.ref, createdAt: Date.now(),
         ...(draft.anchor.source ? { source: draft.anchor.source, ...contextOf(side.text, draft.anchor.start, draft.anchor.end) } : {}),
         ...(draft.anchor.side ? { side: draft.anchor.side } : {}),
-        ...(draft.intent === "replace" ? { replacement: draft.replacement } : {}),
+        ...(hasExact(draft) ? { replacement: draft.exact! } : {}),
       };
       setNotes([...notes, note]);
       setActive(note.id);
@@ -204,7 +210,7 @@ export function DocView(props: Props) {
   function edit(note: Note) {
     const mark = content.current?.querySelector<HTMLElement>(`mark[data-note="${note.id}"]`);
     const rect = mark?.getBoundingClientRect() ?? content.current!.getBoundingClientRect();
-    setDraft({ anchor: { quote: note.quote, start: note.start, end: note.end, side: note.side, rect }, view: note.view, intent: note.intent, text: note.text, replacement: note.replacement ?? note.quote, editing: note.id });
+    setDraft({ anchor: { quote: note.quote, start: note.start, end: note.end, side: note.side, rect }, view: note.view, intent: note.intent, text: note.text, exact: note.replacement ?? null, editing: note.id });
   }
 
   // Clicking a highlight focuses its note, and vice versa.
@@ -218,6 +224,7 @@ export function DocView(props: Props) {
     return { top: rect.bottom - box.top + scroller.current!.scrollTop + 8, left: Math.max(12, Math.min(rect.left - box.left, box.width - 440)) };
   };
 
+  const suggested = toolbar ? suggestIntent(doc, toolbar.anchor.quote) : "change";
   const ordered = useMemo(() => [...notes].sort((a, b) => (tops[a.id] ?? -1) - (tops[b.id] ?? -1)), [notes, tops]);
   const showMargin = !props.narrow || props.notesOpen;
 
@@ -247,7 +254,7 @@ export function DocView(props: Props) {
                   <button type="button" class="icon small" title="Delete" onClick={e => { e.stopPropagation(); remove(note.id); }}>✕</button>
                 </div>
                 <blockquote>{note.quote.length > 160 ? note.quote.slice(0, 160) + "…" : note.quote}</blockquote>
-                {note.intent === "replace" && <pre class="replacement">{note.replacement}</pre>}
+                {note.replacement !== undefined && <pre class="replacement">{note.replacement}</pre>}
                 {note.text && <p class="text">{note.text}</p>}
               </div>
             ))}
@@ -258,29 +265,33 @@ export function DocView(props: Props) {
       {toolbar && (
         <div class="toolbar" style={place(toolbar.anchor.rect)} role="toolbar" aria-label="Add a note">
           {INTENTS.map(intent => (
-            <button type="button" class={`chip i-${intent.id}`} title={`${intent.hint} (${intent.key})`} onMouseDown={e => e.preventDefault()} onClick={() => openComposer(toolbar, intent.id)}>
+            <button type="button" class={`chip i-${intent.id}` + (intent.id === suggested ? " on" : "")} title={`${intent.hint} (${intent.key}${intent.id === suggested ? " or ↵" : ""})`} onMouseDown={e => e.preventDefault()} onClick={() => openComposer(toolbar, intent.id)}>
               {intent.label}<kbd>{intent.key}</kbd>
             </button>
           ))}
         </div>
       )}
-      {toolbar && <ToolbarKeys onPick={intent => openComposer(toolbar, intent)} onClose={() => setToolbar(null)} />}
+      {toolbar && <ToolbarKeys suggested={suggested} onPick={intent => openComposer(toolbar, intent)} onClose={() => setToolbar(null)} />}
 
       {draft && (
         <div class={`composer i-${draft.intent}`} style={place(draft.anchor.rect)} onMouseUp={e => e.stopPropagation()}>
           <div class="intents" role="radiogroup" aria-label="Intent">
             {INTENTS.map(intent => (
               <button type="button" role="radio" aria-checked={draft.intent === intent.id} class={`chip i-${intent.id}` + (draft.intent === intent.id ? " on" : "")} title={intent.hint}
-                onClick={() => setDraft({ ...draft, intent: intent.id, replacement: draft.replacement || draft.anchor.quote })}>{intent.label}</button>
+                onClick={() => setDraft({ ...draft, intent: intent.id })}>{intent.label}</button>
             ))}
           </div>
+          <p class="intent-hint">{intentOf(draft.intent).hint}</p>
           <blockquote>{draft.anchor.quote.length > 200 ? draft.anchor.quote.slice(0, 200) + "…" : draft.anchor.quote}</blockquote>
-          {draft.intent === "replace" && (
-            <textarea class="replacement" rows={Math.min(8, draft.replacement.split("\n").length + 1)} value={draft.replacement} aria-label="Replacement text"
-              onInput={e => setDraft({ ...draft, replacement: (e.target as HTMLTextAreaElement).value })} onKeyDown={e => composerKeys(e, save, () => setDraft(null))} />
-          )}
+          {draft.intent === "change" && (draft.exact === null
+            ? <button type="button" class="link exact-toggle" onClick={() => setDraft({ ...draft, exact: draft.anchor.quote })}>+ Exact replacement text</button>
+            : <div class="exact">
+                <textarea class="replacement" rows={Math.min(8, draft.exact.split("\n").length + 1)} value={draft.exact} aria-label="Exact replacement text"
+                  onInput={e => setDraft({ ...draft, exact: (e.target as HTMLTextAreaElement).value })} onKeyDown={e => composerKeys(e, save, () => setDraft(null))} />
+                <button type="button" class="link exact-toggle" onClick={() => setDraft({ ...draft, exact: null })}>Remove exact text</button>
+              </div>)}
           <textarea ref={el => el && !el.dataset.focused && (el.dataset.focused = "1", el.focus())} rows={3} value={draft.text}
-            placeholder={{ change: "What should change?", ask: "Your question…", keep: "Why keep it? (optional)", replace: "Why? (optional)" }[draft.intent]}
+            placeholder={{ change: draft.exact !== null ? "Why? (optional)" : "What should change?", reply: "Your answer — e.g. “yes, go ahead”", question: "Your question…", keep: "Why keep it? (optional)" }[draft.intent]}
             onInput={e => setDraft({ ...draft, text: (e.target as HTMLTextAreaElement).value })} onKeyDown={e => composerKeys(e, save, () => setDraft(null))} />
           <div class="composer-foot">
             <span class="hint">⌘↵ save · Esc cancel</span>
@@ -302,13 +313,14 @@ function composerKeys(event: KeyboardEvent, save: () => void, cancel: () => void
   else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
 }
 
-function ToolbarKeys({ onPick, onClose }: { onPick: (intent: Intent) => void; onClose: () => void }) {
+function ToolbarKeys({ suggested, onPick, onClose }: { suggested: Intent; onPick: (intent: Intent) => void; onClose: () => void }) {
   // Layout effect: the keys work as soon as the toolbar is visible.
   useLayoutEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const intent = INTENTS.find(i => i.key === event.key);
       if (intent) { event.preventDefault(); event.stopPropagation(); onPick(intent.id); }
+      else if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); onPick(suggested); }
       else if (event.key === "Escape") onClose();
     };
     addEventListener("keydown", handler, true);

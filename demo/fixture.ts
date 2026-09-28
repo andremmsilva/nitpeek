@@ -28,7 +28,7 @@ export function createDemoStore() {
   const context = join(notes, "context.md");
   writeFileSync(context, "# Context\n\nOpened for review, but not edited by the agent.\n");
   store.addFile(context);
-  store.response("demo-2", "Done. The runner now reads the **threshold** (default `0.75`) and writes `runs/exp-01/results.json`.\n\n## What changed\n\n1. `runner.py` creates the output folder and writes pretty JSON.\n2. `config.json` uses `0.75`.\n3. The README has an *Output* section.\n\n> I did not add validation for thresholds below 0.5 yet, although the README mentions it.\n\n```bash\npython src/runner.py\n```");
+  store.response("demo-2", "Done. The runner now reads the **threshold** (default `0.75`) and writes `runs/exp-01/results.json`.\n\n## What changed\n\n1. `runner.py` creates the output folder and writes pretty JSON.\n2. `config.json` uses `0.75`.\n3. The README has an *Output* section.\n\n> I did not add validation for thresholds below 0.5 yet, although the README mentions it.\n\n```bash\npython src/runner.py\n```\n\nWant me to add the validation now?");
   store.setActivity("idle");
   return { directory, workspace, store, runner: join(source, "runner.py"), readme: join(workspace, "README.md"), context };
 }

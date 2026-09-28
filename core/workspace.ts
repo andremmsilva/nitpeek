@@ -66,6 +66,7 @@ export async function startWorkspace(store: ReviewStore, host: Host, options: { 
       }
       if (method === "GET" && route === "/api/review/document") return store.document(q("path"), scopeOf(q("scope")));
       if (method === "GET" && route === "/api/review/stat") return store.liveRef(q("path"));
+      if (method === "POST" && route === "/api/review/general") return store.setGeneral(body?.text);
       if (method === "POST" && route === "/api/review/notes") return store.saveNotes(body?.path, body?.notes);
       if (method === "GET" && route === "/api/review/browse") return store.browse(q("path"));
       if (method === "GET" && route === "/api/review/search") return store.search(q("q"));

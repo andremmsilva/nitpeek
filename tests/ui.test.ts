@@ -47,12 +47,22 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     // Prose: select across an inline <strong> element.
     assert.ok(await select(".prose", "reads the threshold"));
     await page.waitForSelector(".toolbar");
-    await page.keyboard.press("2");
+    assert.equal(await page.$eval(".toolbar .chip.on", e => e.textContent), "Change1", "a plain statement suggests Change");
+    await page.keyboard.press("3");
     await page.waitForSelector(".composer textarea");
     await page.keyboard.type("Where is the default documented?");
     await saveNote();
-    assert.equal(await page.$$eval("mark.np-note.i-ask", m => m.length) > 0, true, "highlight drawn");
-    assert.match(await page.$eval(".card.i-ask", e => e.textContent!), /Where is the default documented\?/);
+    assert.equal(await page.$$eval("mark.np-note.i-question", m => m.length) > 0, true, "highlight drawn");
+    assert.match(await page.$eval(".card.i-question", e => e.textContent!), /Where is the default documented\?/);
+
+    // An offer in a reply suggests Reply, and Enter takes the suggestion.
+    assert.ok(await select(".prose", "Want me to add the validation now?"));
+    await page.waitForSelector(".toolbar");
+    assert.equal(await page.$eval(".toolbar .chip.on", e => e.textContent), "Reply2");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".composer.i-reply textarea");
+    await page.keyboard.type("Yes, go ahead.");
+    await saveNote();
 
     // Diff: a note from a line number, then shown in the File view too.
     await page.click('.row[data-path$="runner.py"]');
@@ -71,8 +81,9 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     await page.click(".done-button");
     await page.waitForSelector(".preview");
     const preview = await page.$eval(".preview", e => e.textContent!);
-    assert.match(preview, /\[1\] ask · your response to "The threshold should be 0\.75/);
-    assert.match(preview, /\[2\] change · src\/runner\.py:6\n> {5}threshold = config\.get\("threshold", 0\.75\)\nReject thresholds below 0\.5\./);
+    assert.match(preview, /\[1\] question · your response to "The threshold should be 0\.75/);
+    assert.match(preview, /\[2\] reply · same response\n> Want me to add the validation now\?\nYes, go ahead\./);
+    assert.match(preview, /\[3\] change · src\/runner\.py:6\n> {5}threshold = config\.get\("threshold", 0\.75\)\nReject thresholds below 0\.5\./);
     await page.click(".dialog.done button.primary");
     await wait(800);
     assert.equal(delivered.length, 1);

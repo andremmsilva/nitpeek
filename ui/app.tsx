@@ -190,7 +190,7 @@ function App() {
     const handler = (event: KeyboardEvent) => {
       const typing = (event.target as Element).closest("input, textarea, select, [contenteditable]");
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") { event.preventDefault(); setOverlay("find"); return; }
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !typing && !overlay && !composing) { event.preventDefault(); if (overview?.notes) setOverlay("done"); return; }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !typing && !overlay && !composing) { event.preventDefault(); setOverlay("done"); return; }
       if (event.key === "Escape" && overlay) { setOverlay(null); return; }
       if (typing || overlay || composing || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") { setMenu(false); setActive(null); }
@@ -244,11 +244,11 @@ function App() {
         {BOOT.demo && <span class="tag">demo</span>}
         {offline && <span class="tag warn">disconnected</span>}
         <span class="spacer" />
-        <span class={"save " + save}>{save === "saving" ? "Saving…" : save === "error" ? <>Couldn’t save <button type="button" class="link" onClick={retrySave}>Retry</button></> : overview.notes ? "Notes saved · not sent" : ""}</span>
+        <span class={"save " + save}>{save === "saving" ? "Saving…" : save === "error" ? <>Couldn’t save <button type="button" class="link" onClick={retrySave}>Retry</button></> : overview.notes || overview.general ? "Notes saved · not sent" : ""}</span>
         <button type="button" class="icon" title="Keyboard shortcuts (?)" onClick={() => setOverlay("help")}>?</button>
         <button type="button" class="icon" title="Settings" onClick={() => setOverlay("settings")}>⚙</button>
-        <button type="button" class="primary done-button" disabled={!overview.notes} onClick={() => setOverlay("done")} title="Review and send your notes (⌘↵)">
-          Done{overview.notes ? <span class="badge">{overview.notes}</span> : null}
+        <button type="button" class="primary done-button" onClick={() => setOverlay("done")} title="Review and send your notes (⌘↵)">
+          Done{overview.notes || overview.general ? <span class="badge">{overview.notes + (overview.general ? 1 : 0)}</span> : null}
         </button>
       </header>
 
@@ -319,7 +319,7 @@ function App() {
       </main>
 
       {overlay === "find" && <Palette recent={recent.current} onOpenFile={openBrowsable} onOpenFolder={openFolder} onClose={() => setOverlay(null)} />}
-      {overlay === "done" && <DoneDialog host={host} onClose={() => setOverlay(null)} onDone={onDone} />}
+      {overlay === "done" && <DoneDialog host={host} general={overview.general} onClose={() => { setOverlay(null); refresh(); }} onDone={onDone} />}
       {overlay === "settings" && <SettingsDialog settings={settings} onChange={setSettings} onClose={() => setOverlay(null)} />}
       {overlay === "help" && <Shortcuts onClose={() => setOverlay(null)} />}
 

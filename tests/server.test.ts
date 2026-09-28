@@ -46,10 +46,13 @@ suite("server: loopback, token, framing, routes, Done", async () => {
     assert.equal(doc.diff.added, 1);
     assert.deepEqual(await get("/api/review/stat?path=" + encodeURIComponent(path)), { ref: doc.ref });
     assert.equal((await post("/api/review/notes", { path, notes: [{ id: "bad!" }] })).status, 400);
-    assert.equal((await post("/api/review/notes", { path, notes: [{ id: "n1", intent: "ask", text: "Why two?", quote: "two", source: "two", start: 4, end: 7, view: "document", ref: doc.ref, createdAt: 1 }] })).status, 200);
+    assert.equal((await post("/api/review/notes", { path, notes: [{ id: "n1", intent: "question", text: "Why two?", quote: "two", source: "two", start: 4, end: 7, view: "document", ref: doc.ref, createdAt: 1 }] })).status, 200);
     const preview = await get("/api/review/preview");
     assert.equal(preview.deliveryNote, "into the test");
-    assert.match(preview.feedback, /\[1\] ask · a\.txt:2/);
+    assert.match(preview.feedback, /\[1\] question · a\.txt:2/);
+    assert.equal((await post("/api/review/general", { text: 5 })).status, 400);
+    assert.equal((await post("/api/review/general", { text: "Then run the tests." })).status, 200);
+    assert.match((await get("/api/review/preview")).feedback, /General: Then run the tests\./);
     const done = await (await post("/api/review/done", {})).json();
     assert.equal(done.message, "delivered");
     assert.match(delivered[0], /Why two\?/);

@@ -63,8 +63,22 @@ suite("store: timeline, scopes, checkpoint, notes", () => {
     const reopened = box.store();
     assert.equal(reopened.state.drafts[path].length, 1);
     assert.match(reopened.feedback(), /\[1\] change · doc\.md:3/);
+    reopened.setGeneral("Also update the changelog.");
+    assert.match(reopened.feedback(), /General: Also update the changelog\./);
+    assert.equal(reopened.overview().general, "Also update the changelog.");
+    assert.throws(() => reopened.setGeneral(42), /Invalid general note/);
     reopened.clearDrafts();
     assert.equal(reopened.feedback(), "");
+    assert.equal(reopened.overview().general, "");
+
+    // Notes saved with the old intents are migrated, on load and on save.
+    reopened.saveNotes(path, [note({ quote: "New.", start: 0, end: 4, ref: null, intent: "ask" as any }), note({ quote: "New.", start: 0, end: 4, ref: null, intent: "replace" as any, replacement: "Newer." })]);
+    assert.deepEqual(reopened.state.drafts[path].map(n => [n.intent, n.replacement]), [["question", undefined], ["change", "Newer."]]);
+    const legacy = JSON.parse(JSON.stringify(reopened.state));
+    legacy.drafts[path][0].intent = "ask";
+    writeFileSync(reopened.statePath, JSON.stringify(legacy));
+    assert.equal(box.store().state.drafts[path][0].intent, "question");
+    reopened.clearDrafts();
 
     // Manual files have no diff until an agent edits them.
     const manual = join(box.directory, "read.txt");

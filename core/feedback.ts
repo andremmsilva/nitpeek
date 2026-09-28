@@ -1,8 +1,8 @@
 /**
  * The review notes as the agent reads them.
  *
- * Each note carries an intent that tells the agent what to do (change, ask,
- * keep, replace), a location it can open (`path:line` on the file as it is on
+ * Each note carries an intent that tells the agent what to do (change, reply,
+ * question, keep), a location it can open (`path:line` on the file as it is on
  * disk *now*), and the exact quote. Notes are numbered so the agent can answer
  * them one by one.
  */
@@ -49,28 +49,32 @@ function shorten(text: string, max = 70) {
   return flat.length > max ? flat.slice(0, max - 1).trimEnd() + "…" : flat;
 }
 
-export function formatFeedback(items: FeedbackItem[]): string {
+export function formatFeedback(items: FeedbackItem[], general = ""): string {
   const entries: string[] = [];
   const used = new Set<string>();
   for (const item of items) {
     const notes = [...item.notes].sort((a, b) => (a.side === "old" ? 1 : 0) - (b.side === "old" ? 1 : 0) || a.start - b.start);
     for (const [index, note] of notes.entries()) {
       used.add(note.intent);
+      const exact = note.intent === "change" && note.replacement !== undefined;
+      if (exact) used.add("exact");
       const where = item.kind === "response"
         ? (index > 0 ? "same response" : item.prompt ? `your response to "${shorten(item.prompt)}"` : "your response")
         : locate(item, note);
-      const body = note.intent === "replace"
-        ? [quoteBlock(note.quote, "- "), quoteBlock(note.replacement ?? "", "+ ")].join("\n")
+      const body = exact
+        ? [quoteBlock(note.quote, "- "), quoteBlock(note.replacement!, "+ ")].join("\n")
         : quoteBlock(note.quote);
       const text = note.text.trim();
       entries.push(`[${entries.length + 1}] ${note.intent} · ${where}\n${body}${text ? "\n" + text : ""}`);
     }
   }
-  if (!entries.length) return "";
+  const overall = general.trim();
+  if (!entries.length) return overall ? `Review note:\n${overall}` : "";
   const legend = [
-    used.has("ask") && "ask = just answer, don't edit for it",
+    used.has("reply") && "reply = my answer to what you asked or offered — act on it",
+    used.has("question") && "question = just answer, don't edit for it",
     used.has("keep") && "keep = leave it as it is",
-    used.has("replace") && "replace = apply exactly that replacement",
+    used.has("exact") && "-/+ = apply exactly that replacement",
   ].filter(Boolean).join(" · ");
-  return `Review notes (${entries.length}) — reply to each by its number.${legend ? "\n" + legend : ""}\n\n${entries.join("\n\n")}`;
+  return `Review notes (${entries.length}) — reply to each by its number.${legend ? "\n" + legend : ""}${overall ? "\n\nGeneral: " + overall : ""}\n\n${entries.join("\n\n")}`;
 }

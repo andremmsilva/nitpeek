@@ -32,10 +32,17 @@ Select text (or click a line number). Then pick what you want the agent to do:
 
 | Intent | Key | The agent… |
 |--------|-----|------------|
-| **Change** | 1 | changes it as you describe |
-| **Ask** | 2 | answers the question and doesn't edit anything for it |
-| **Keep** | 3 | leaves it as it is |
-| **Replace** | 4 | applies your exact replacement text |
+| **Change** | 1 | changes it as you describe, or to your **exact text** (optional, shown as `-`/`+`) |
+| **Reply** | 2 | treats it as your answer to something it asked or offered (“yes, go ahead”, “option B”) and acts on it |
+| **Question** | 3 | only answers; no edits for it |
+| **Keep** | 4 | leaves it as it is |
+
+The toolbar suggests an intent, and `↵` takes the suggestion. Selecting a
+question or an offer in a reply (“Want me to…?”, “Queres que…”) suggests
+**Reply**. Everything else suggests **Change**.
+
+A **general note** (in the Done dialog) is for instructions that don't belong
+to any quote, such as “run the tests afterwards”.
 
 Notes sit in the margin next to their highlight. They follow their quote when
 the file changes: a note made in the Diff also shows in the File view, and the
@@ -45,15 +52,17 @@ other way round.
 
 ```
 Review notes (3) — reply to each by its number.
-ask = just answer, don't edit for it · replace = apply exactly that replacement
+reply = my answer to what you asked or offered — act on it · -/+ = apply exactly that replacement
 
-[1] ask · your response to "The threshold should be 0.75 and results must…"
-> I did not add validation for thresholds below 0.5 yet
-Why not? It was part of the request.
+General: Run the tests afterwards.
 
-[2] replace · README.md:13
+[1] reply · your response to "The threshold should be 0.75 and results must…"
+> Want me to add the validation now?
+Yes, go ahead.
+
+[2] change · README.md:13
 - A threshold below `0.5` is rejected.
-+ Thresholds are not validated yet.
++ Thresholds below 0.5 are rejected with an error.
 
 [3] change · src/runner.py:6
 >     threshold = config.get("threshold", 0.75)
@@ -64,7 +73,7 @@ The locations point at the file **as it is on disk now**. When the file changed
 after you reviewed it, the quote is found again using the text around it. If
 it's gone, the note says so instead of giving a wrong line.
 
-Keyboard: `⌘P` find · `j/k` items · `n/N` notes · `d` diff · `s` source ·
+Keyboard: `⌘P` find · `1–4` / `↵` intent · `j/k` items · `n/N` notes · `d` diff · `s` source ·
 `⌘↵` Done · `[` sidebar · `?` help.
 
 ## Install
