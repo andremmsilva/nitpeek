@@ -1,29 +1,26 @@
 {
-  "name": "pi-annotate-local",
-  "version": "0.1.0",
+  "name": "nitpeek",
+  "version": "0.2.0",
   "private": true,
-  "description": "Visual annotation extension for pi - review messages and markdown documents in a local browser UI",
+  "description": "Review what your coding agent did — highlight, note, and hand the notes back (Pi, Claude Code)",
   "type": "module",
   "keywords": [
     "pi",
     "pi-coding-agent",
     "pi-package",
-    "annotation",
-    "review"
+    "claude-code",
+    "review",
+    "annotation"
   ],
   "files": [
-    "index.ts",
-    "server.ts",
-    "settings.ts",
-    "markdown.ts",
-    "review.ts",
-    "review-extension.ts",
-    "demo.ts",
-    "form/"
+    "core/",
+    "hosts/",
+    "ui/index.html",
+    "dist/"
   ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./hosts/pi/index.ts"
     ]
   },
   "peerDependencies": {
@@ -32,6 +29,15 @@
   "dependencies": {
     "diff": "^9.0.0",
     "highlight.js": "^11.12.0",
-    "markdown-it": "^15.0.2"
+    "markdown-it": "^15.0.2",
+    "preact": "^10.29.8"
+  },
+  "scripts": {
+    "build": "bun build ui/app.tsx --outfile dist/app.js --minify --target browser && cp ui/styles.css dist/app.css",
+    "demo": "bun demo/serve.ts",
+    "test": "./tests/run.sh"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
   }
 }

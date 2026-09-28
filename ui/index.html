@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nitpeek</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='17' width='26' height='9' rx='3' fill='%23f2c14e'/%3E%3Ctext x='16' y='22' font-family='Georgia,serif' font-size='20' text-anchor='middle' fill='%23201a0a'%3En%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app.css">
+<script>
+  // Apply the saved theme before first paint.
+  try {
+    var data = JSON.parse(document.currentScript.nextElementSibling.textContent);
+    var theme = (data.settings && data.settings.theme) || "system";
+    if (theme === "system") theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    document.documentElement.dataset.theme = theme;
+  } catch (e) {}
+</script>
+<script id="nitpeek-data" type="application/json">__NITPEEK_DATA__</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

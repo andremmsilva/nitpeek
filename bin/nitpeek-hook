@@ -1,0 +1,4 @@
+#!/bin/sh
+# Claude Code hook entry point; a short name keeps Claude's hook messages readable.
+here=$(dirname "$(readlink -f "$0")")
+exec "${NITPEEK_BUN:-$HOME/.bun/bin/bun}" "$here/../hosts/claude/hook.ts"

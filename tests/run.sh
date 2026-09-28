@@ -1,22 +1,12 @@
 #!/usr/bin/env bash
-# Run all pi-annotate tests. Requires bun (for TypeScript execution).
-set -euo pipefail
+# Run every nitpeek test suite with an isolated NITPEEK_HOME.
+set -uo pipefail
 cd "$(dirname "$0")"
-
+export NITPEEK_HOME="$(mktemp -d)"
+trap 'rm -rf "$NITPEEK_HOME"' EXIT
+(cd .. && bun run build >/dev/null) || { echo "UI build failed"; exit 1; }
 failures=0
 for test in *.test.ts; do
-  echo "──────────────────────────────────────────────"
-  echo "▶ $test"
-  echo "──────────────────────────────────────────────"
-  if ! bun run "$test"; then
-    failures=$((failures + 1))
-  fi
+  if output=$(bun run "$test" 2>&1); then echo "✓ ${test%.test.ts}"; else echo "✗ ${test%.test.ts}"; echo "$output" | tail -30; failures=$((failures + 1)); fi
 done
-
-echo
-if [ "$failures" -eq 0 ]; then
-  echo "✅ all suites passed"
-else
-  echo "❌ $failures suite(s) failed"
-  exit 1
-fi
+[ "$failures" -eq 0 ] && echo "all suites passed" || { echo "$failures suite(s) failed"; exit 1; }

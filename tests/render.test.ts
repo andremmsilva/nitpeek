@@ -1,4 +1,4 @@
-import { DEMO_MARKDOWN, normalizeMarkdown, renderMarkdown } from "../markdown.ts";
+import { buildDiff, diffStat, highlightLines, languageOf, normalizeMarkdown, renderMarkdown } from "../core/render.ts";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = "") {
@@ -190,16 +190,33 @@ const matrix = [
   check("links open in a new tab", html.includes('target="_blank"') && html.includes('rel="noopener"'));
 }
 {
-  check("empty markdown renders a placeholder", renderMarkdown("").includes("(empty content)"));
+  check("empty markdown renders a placeholder", renderMarkdown("").includes("(empty)"));
 }
 
-// ── Demo document ────────────────────────────────────────────────────────
+// ── Source lines ─────────────────────────────────────────────────────────
 {
-  const html = renderMarkdown(DEMO_MARKDOWN);
-  check("demo: renders", html.includes("Demo Plan") && blocks(html).length > 5);
-  check("demo: code block highlighted", html.includes("hljs-keyword"));
-  check("demo: nested list preserved", html.includes("<ul") && html.includes("<ol"));
-  check("demo: selection mapping offsets valid", blocks(html).every((b) => b.end > b.start));
+  const source = "/**\n * doc\n */\nconst s = `a\nb`;\nlet x = 1;\n";
+  const lines = highlightLines(source, "typescript");
+  const text = (html: string) => html.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'");
+  check("one fragment per source line", lines.length === 6);
+  check("fragments keep the exact line text", lines.map(text).join("\n") + "\n" === source);
+  check("spans crossing lines are closed and reopened", lines.every(l => (l.match(/<span/g) ?? []).length === (l.match(/<\/span>/g) ?? []).length) && lines[1].startsWith('<span class="hljs-comment">'));
+  check("plain text is escaped", highlightLines("<script>&", null)[0] === "&lt;script&gt;&amp;");
+  check("language detection", languageOf("/a/b/Main.java") === "java" && languageOf("x.tex") === "latex" && languageOf("Makefile") === "makefile" && languageOf("x.unknown") === null);
+}
+
+// ── Diff ─────────────────────────────────────────────────────────────────
+{
+  const diff = buildDiff("a\nconst value = 1;\nc\n", "a\nconst value = 2;\nc\nd\n", "typescript");
+  const lines = diff.hunks[0].lines;
+  check("diff counts", diff.added === 2 && diff.removed === 1);
+  check("line numbers per side", lines[1].kind === "-" && lines[1].old === 2 && lines[2].kind === "+" && lines[2].new === 2 && lines[4].new === 4);
+  check("word-level ranges for paired lines", JSON.stringify(lines[1].words) === "[[14,15]]" && JSON.stringify(lines[2].words) === "[[14,15]]");
+  check("rewritten lines skip word ranges", buildDiff("alpha beta\n", "zzz yyy xxx\n", null).hunks[0].lines.every(l => !l.words));
+  check("diff lines are syntax highlighted", lines[1].html.includes("hljs-keyword"));
+  check("created file diff", buildDiff("", "x\ny\n", null).added === 2);
+  const stat = diffStat(null, "a\nb\n");
+  check("diffStat of a new file", stat.added === 2 && stat.removed === 0);
 }
 
 console.log(failures === 0 ? "\nRENDER SUITE PASSED" : `\n${failures} RENDER TEST(S) FAILED`);
