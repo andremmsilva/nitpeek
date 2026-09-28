@@ -190,7 +190,8 @@ export class ReviewStore {
     let canonical = path;
     try { canonical = realpathSync(path); }
     catch { try { canonical = resolve(realpathSync(dirname(path)), basename(path)); } catch {} }
-    return within(this.projectRoot(), canonical) ? relative(this.projectRoot(), canonical) || "." : canonical;
+    // Outside the project keep the path as the agent wrote it (/tmp, not /private/tmp).
+    return within(this.projectRoot(), canonical) ? relative(this.projectRoot(), canonical) || "." : path;
   }
 
   /** Explicit user action: remember a directory, or a file's parent and open that file. */
