@@ -7,11 +7,12 @@
  * owning Claude process is gone.
  */
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Socket } from "node:net";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { connect, createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { ReviewStore } from "../../core/store.js";
-import { blobStore, startWorkspace, type Target as Focus } from "../../core/workspace.js";
+import { NITPEEK_HOME, blobStore, startWorkspace, type Target as Focus } from "../../core/workspace.js";
+import { sweep } from "../../core/retention.js";
 import { capture, deliver, run } from "./paste.js";
 import { STORAGE, sessionKey, socketPath, type DaemonConfig, type OpenRequest, type Target } from "./shared.js";
 import { TranscriptFeed, type TailState } from "./transcript.js";
@@ -22,6 +23,7 @@ async function main() {
   const key = sessionKey(config.sessionId);
   mkdirSync(STORAGE, { recursive: true, mode: 0o700 });
   const tailPath = join(STORAGE, key + ".tail.json");
+  try { sweep(NITPEEK_HOME); } catch (error) { console.error("sweep failed:", error); }
   const store = new ReviewStore(config.cwd, join(STORAGE, key + ".json"), config.sessionId, blobStore());
   let tail: TailState | undefined;
   try { tail = JSON.parse(readFileSync(tailPath, "utf8")); } catch {}
@@ -55,10 +57,22 @@ async function main() {
     }
     workspace.focus(focus);
     if (workspace.isOpen()) return `nitpeek is already open: ${workspace.url}`;
+    if (process.env.NITPEEK_NO_BROWSER) return `nitpeek: ${workspace.url}`;
     return await run("open", [workspace.url]) ? `nitpeek: ${workspace.url}` : `Open nitpeek manually: ${workspace.url}`;
   }
 
   const sock = socketPath(config.sessionId);
+  // Never take the socket from a live daemon of the same version.
+  if (existsSync(sock)) {
+    const alive = await new Promise<boolean>(resolve => {
+      const probe = connect(sock);
+      probe.setTimeout(800, () => { probe.destroy(); resolve(false); });
+      probe.on("connect", () => probe.write(JSON.stringify({ cmd: "ping" }) + "\n"));
+      probe.on("data", chunk => { probe.destroy(); try { resolve(JSON.parse(String(chunk)).codeStamp === config.codeStamp); } catch { resolve(false); } });
+      probe.on("error", () => resolve(false));
+    });
+    if (alive) { workspace.stop(); console.error("nitpeek daemon already running for", config.sessionId); process.exit(0); }
+  }
   rmSync(sock, { force: true });
   const control = createServer((socket: Socket) => {
     let input = "";
@@ -91,11 +105,18 @@ async function main() {
     } catch {} finally { checkingPane = false; }
   }
 
-  let ticks = 0;
+  // Normally the daemon ends with its Claude process (or at SessionEnd). If
+  // that process could not be identified, a long quiet spell ends it instead.
+  const QUIET_LIMIT = 12 * 60 * 60 * 1000;
+  let ticks = 0, lastActivity = Date.now();
   const timer = setInterval(() => {
-    try { poll(); } catch (error) { console.error("transcript poll failed:", error); }
-    if (++ticks % 3 === 0) paneActivity();
+    try { if (feed.poll()) { saveTail(); lastActivity = Date.now(); } } catch (error) { console.error("transcript poll failed:", error); }
+    const open = workspace.isOpen();
+    if (open) lastActivity = Date.now();
+    // Asking herdr spawns a process: only worth it while someone is looking.
+    if (open && ++ticks % 3 === 0) paneActivity();
     if (config.claudePid) { try { process.kill(config.claudePid, 0); } catch { shutdown(); } }
+    else if (Date.now() - lastActivity > QUIET_LIMIT) shutdown();
   }, 700);
 
   function shutdown() {

@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ReviewStore } from "../../core/store.js";
 import { NITPEEK_HOME, blobStore, startWorkspace, type Target, type Workspace } from "../../core/workspace.js";
+import { sweep } from "../../core/retention.js";
 
 const promptText = (content: unknown) =>
   typeof content === "string" ? content
@@ -52,6 +53,7 @@ export default function (pi: ExtensionAPI, storage = join(NITPEEK_HOME, "pi")) {
     if (suffix) writeFileSync(scopeFile, suffix, { mode: 0o600 });
     else if (existsSync(scopeFile)) suffix = readFileSync(scopeFile, "utf8");
     const key = createHash("sha256").update(identity + suffix).digest("hex");
+    try { sweep(NITPEEK_HOME); } catch { /* housekeeping must never break a session */ }
     store = new ReviewStore(ctx.cwd, join(storage, key + ".json"), session, blobStore());
     captureResponse(ctx);
   }

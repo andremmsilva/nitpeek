@@ -7,7 +7,7 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,16 +56,28 @@ async function ensureDaemon(input: any, target: Target) {
     await new Promise(r => setTimeout(r, 150));
   } catch { /* not running */ }
   mkdirSync(STORAGE, { recursive: true, mode: 0o700 });
-  const config: DaemonConfig = { sessionId: input.session_id, transcriptPath: input.transcript_path, cwd: input.cwd, claudePid: claudePid(), codeStamp: stamp, target };
-  const log = openSync(join(STORAGE, "daemon.log"), "a", 0o600);
-  spawn(process.execPath, [join(here, "daemon.ts"), JSON.stringify(config)], { detached: true, stdio: ["ignore", log, log], cwd: root }).unref();
-  for (let i = 0; i < 50; i++) {
-    await new Promise(r => setTimeout(r, 100));
-    if (existsSync(socketPath(input.session_id))) {
-      try { await send(input.session_id, { cmd: "ping" }, 1000); return; } catch {}
-    }
+  // Two /annotate in quick succession must not start two daemons: only the
+  // holder of the lock spawns; the other waits for the socket.
+  const lock = socketPath(input.session_id).replace(/\.sock$/, ".lock");
+  let owner = false;
+  try { closeSync(openSync(lock, "wx", 0o600)); owner = true; }
+  catch {
+    try { if (Date.now() - statSync(lock).mtimeMs > 15000) { unlinkSync(lock); closeSync(openSync(lock, "wx", 0o600)); owner = true; } } catch {}
   }
-  throw new Error(`nitpeek daemon did not start — see ${join(STORAGE, "daemon.log")}`);
+  try {
+    if (owner) {
+      const config: DaemonConfig = { sessionId: input.session_id, transcriptPath: input.transcript_path, cwd: input.cwd, claudePid: claudePid(), codeStamp: stamp, target };
+      const log = openSync(join(STORAGE, "daemon.log"), "a", 0o600);
+      spawn(process.execPath, [join(here, "daemon.ts"), JSON.stringify(config)], { detached: true, stdio: ["ignore", log, log], cwd: root }).unref();
+    }
+    for (let i = 0; i < 80; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      if (existsSync(socketPath(input.session_id))) {
+        try { await send(input.session_id, { cmd: "ping" }, 1000); return; } catch {}
+      }
+    }
+    throw new Error(`nitpeek daemon did not start — see ${join(STORAGE, "daemon.log")}`);
+  } finally { if (owner) rmSync(lock, { force: true }); }
 }
 
 async function main() {

@@ -89,6 +89,7 @@ export async function startWorkspace(store: ReviewStore, host: Host, options: { 
     url: server.url,
     stop: () => server?.stop(),
     focus: next => { focus++; target = next ?? {}; },
-    isOpen: () => Date.now() - lastSeen < 15000,
+    // Background tabs are throttled to about one poll a minute.
+    isOpen: () => Date.now() - lastSeen < 90000,
   };
 }

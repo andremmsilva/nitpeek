@@ -110,7 +110,10 @@ function App() {
     })();
     const timer = setInterval(refresh, 2000);
     addEventListener("pagehide", notifyClosed);
-    return () => { alive = false; clearInterval(timer); removeEventListener("pagehide", notifyClosed); };
+    // Coming back to a throttled background tab: catch up at once.
+    const visible = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { alive = false; clearInterval(timer); removeEventListener("pagehide", notifyClosed); document.removeEventListener("visibilitychange", visible); };
   }, []);
 
   // /annotate again: jump to its target and bring the tab forward.

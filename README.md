@@ -121,14 +121,21 @@ Then add the hooks to `~/.claude/settings.json`:
   whichever runs Claude. Otherwise the notes go to the clipboard.
 - **Working / waiting for approval** status comes from herdr when available,
   otherwise from the transcript.
-- One background server per session. It stops at SessionEnd or when Claude
-  exits, and restarts on the next `/annotate` after a code change.
+- One background server per session, never more: concurrent `/annotate`
+  calls share it. It stops at SessionEnd (`/exit`, `/clear`…) or within a
+  second of Claude exiting, even after `kill -9`. It restarts on the next
+  `/annotate` after a code change. With no tab open it only watches the
+  transcript.
 
 ## Data and security
 
+- In Pi the server lives inside the Pi process and closes on quit, `/reload`,
+  `/new`, `/resume` and fork.
 - Everything lives in `~/.nitpeek/` with private permissions: `pi/` and `claude/`
   session state, `blobs/` (content-addressed file versions, shared), and
-  `settings.json`. Theme and code size carry over from pi-annotate.
+  `settings.json`. Theme and code size carry over from pi-annotate. Once a
+  day, sessions untouched for 30 days are removed, together with file versions
+  no session references anymore.
 - The server binds to `127.0.0.1` on a random port. It requires a per-server token
   for API calls, rejects non-loopback `Host` headers and denies framing.
 - Text files up to 512 KiB are shown; binaries and larger files are listed only.
