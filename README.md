@@ -120,7 +120,9 @@ Then add the hooks to `~/.claude/settings.json`:
 - **The session is read from Claude's transcript**, including edits made before
   the first `/annotate` and edits made by subagents. When Claude didn't record a
   file's original contents, the baseline comes from the last known version,
-  Claude's rewind backups, or by undoing the edit on disk.
+  Claude's rewind backups, or by undoing the edit on disk. Subagent edits count
+  in the request they happened in. The project is the folder the session
+  started in, however many `cd`s the agent did since.
 - **Done pastes into Claude's prompt** as a bracketed paste, so newlines never
   submit it. Claude collapses long pastes into `[Pasted text #N]`, so nitpeek
   pastes once more to expand the text for editing. It uses herdr, tmux or kitty,
@@ -145,9 +147,15 @@ Then add the hooks to `~/.claude/settings.json`:
 - The server binds to `127.0.0.1` on a random port. It requires a per-server token
   for API calls, rejects non-loopback `Host` headers and denies framing.
 - Text files up to 512 KiB are shown; binaries and larger files are listed only.
-- Files written by shell commands aren't attributed to the agent. Open their
-  folder to review them. The panel flags when a file on disk differs from the
-  last recorded change.
+- Shell edits (`sed -i`, `python3 - <<EOF`, `cp`, `>` …) are captured too. Pi
+  snapshots the files a command names (and the files already under review)
+  before it runs, so those diffs are exact. Claude has no such moment, so
+  nitpeek takes the files that command names, the files under review and the
+  repository's modified files, and keeps the ones modified while the command
+  ran. The "before" is the last version it knows (an edit, or a full Read by the
+  agent), else the last commit, else it says it is unknown. Scripts that write
+  files the command doesn't name, and temp folders and logs, are not tracked.
+  The panel flags when a file on disk differs from the last recorded change.
 
 ## Development
 

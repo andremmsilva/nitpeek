@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { ReviewStore } from "../core/store.ts";
 import { BlobStore } from "../core/snapshot.ts";
 import { TranscriptFeed, mutation } from "../hosts/claude/transcript.ts";
+import { shellPaths } from "../core/shell.ts";
+import { projectDir } from "../hosts/claude/shared.ts";
 
 // Synthetic Claude Code transcript: request boundaries, a local command, a
 // tool-using turn, an Edit without originalFile, and a final text answer.
@@ -65,6 +67,52 @@ feed.poll();
 check("an interrupt is not a request and ends the turn", [store.request.id, store.state.activity?.state], [2, "idle"]);
 check("MultiEdit applies edits in order", mutation({ filePath: "/x", originalFile: "a b a", edits: [{ old_string: "a", new_string: "c", replace_all: true }, { old_string: "b", new_string: "d" }] })?.after, { text: "c d c" });
 check("unrelated tool results are ignored", mutation({ stdout: "hi" }), null);
+
+// ── Files changed by shell commands ──
+{
+  mkdirSync(join(project, "docs"));
+  const doc = join(project, "docs", "a.md"), created = join(project, "docs", "new.txt"), bystander = join(project, "docs", "other.txt");
+  writeFileSync(doc, "one\ntwo\n"); writeFileSync(bystander, "x\n");
+  const iso = (t: number) => new Date(t).toISOString();
+  line({ type: "user", timestamp: iso(Date.now()), message: { role: "user", content: "tidy the docs" } });
+  line({ type: "assistant", uuid: "r1", timestamp: iso(Date.now()), message: { id: "m4", role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t4", name: "Read", input: {} }] } });
+  line({ type: "user", timestamp: iso(Date.now()), toolUseResult: { type: "text", file: { filePath: doc, content: "one\ntwo\n", numLines: 2, startLine: 1, totalLines: 2 } }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t4" }] } });
+  feed.poll();
+  const start = Date.now() - 50;
+  // Written after the (long-ago) Read, by "python" in a subfolder, plus a new file, a temp file and a bystander.
+  const command = "cd docs && python3 - <<'EOF'\np='a.md'\nopen(p,'w').write('one\\nTWO\\n')\nopen('new.txt','w').write('hi')\nopen('/tmp/scratch.txt','w')\nEOF";
+  line({ type: "assistant", uuid: "s1", cwd: project, timestamp: iso(start), message: { id: "m5", role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t5", name: "Bash", input: { command } }] } });
+  writeFileSync(doc, "one\nTWO\n"); writeFileSync(created, "hi\n");
+  line({ type: "user", timestamp: iso(Date.now() + 50), toolUseResult: { stdout: "", stderr: "" }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t5" }] } });
+  feed.poll();
+  const changes = store.request.changes;
+  check("a shell edit is recorded with the version its last full Read saw", [store.blobs.get(changes[doc]?.before).text, store.blobs.get(changes[doc]?.after).text], ["one\ntwo\n", "one\nTWO\n"]);
+  check("a file the command created is new", changes[created]?.before, { hash: null });
+  check("files the command does not name are left alone", changes[bystander], undefined);
+  const paths = shellPaths("cd src && sed -i '' 's/a/b/' main.py > ../out.txt; curl https://x.io/a.json -o -", "/p");
+  check("shell paths follow cd and skip flags and URLs", [paths.includes("/p/src/main.py"), paths.includes("/p/out.txt"), paths.some(p => p.includes("x.io") || p.endsWith("/-o"))], [true, true, false]);
+}
+
+// ── Subagent edits land in the request they happened in, even when read all at once ──
+{
+  const session = join(dir, "replay.jsonl"), sub = join(dir, "replay", "subagents");
+  mkdirSync(sub, { recursive: true });
+  const target = join(project, "sub.md");
+  writeFileSync(target, "v1\n");
+  const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s)).toISOString();
+  writeFileSync(session, [
+    { type: "user", timestamp: at(1), cwd: project, message: { role: "user", content: "first" } },
+    { type: "assistant", uuid: "x1", timestamp: at(2), message: { id: "x1", role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "k1", name: "Task", input: {} }] } },
+    { type: "user", timestamp: at(9), message: { role: "user", content: "second" } },
+    { type: "assistant", uuid: "x2", timestamp: at(10), message: { id: "x2", role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "ok" }] } },
+  ].map(e => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(sub, "agent-1.jsonl"), JSON.stringify({ type: "user", timestamp: at(5), toolUseResult: { type: "update", filePath: target, content: "v2\n", originalFile: "v1\n" }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "z" }] } }) + "\n");
+  const replay = new ReviewStore(project, join(dir, "replay-state.json"), "replay", new BlobStore(join(dir, "blobs")));
+  new TranscriptFeed(replay, session).poll();
+  check("subagent edit is attributed by time", replay.state.requests.map(r => Object.keys(r.changes).length), [0, 1, 0]);
+  delete process.env.CLAUDE_PROJECT_DIR;
+  check("the project is where the session started, not the last cd", projectDir({ cwd: join(project, "docs"), transcript_path: session }), project);
+}
 
 rmSync(dir, { recursive: true, force: true });
 if (failures) { console.error(`${failures} failure(s)`); process.exit(1); }

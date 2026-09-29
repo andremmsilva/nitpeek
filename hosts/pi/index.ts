@@ -66,6 +66,7 @@ export default function (pi: ExtensionAPI, storage = join(NITPEEK_HOME, "pi")) {
   pi.on("agent_start", () => store?.setActivity("working"));
   pi.on("tool_call", event => {
     if ((event.toolName === "write" || event.toolName === "edit") && typeof (event.input as any).path === "string") store?.begin(event.toolCallId, (event.input as any).path);
+    else if (event.toolName === "bash" && typeof (event.input as any).command === "string") store?.beginShell(event.toolCallId, (event.input as any).command);
   });
   pi.on("tool_execution_end", event => store?.end(event.toolCallId, event.isError));
   pi.on("agent_settled", (_event, ctx) => { captureResponse(ctx); store?.setActivity("idle"); });

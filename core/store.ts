@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { buildDiff, diffStat, highlightLines, isMarkdownPath, languageOf, renderMarkdown, type Diff } from "./render.js";
 import { isTexPath, renderTex } from "./tex.js";
+import { isNoise, shellPaths } from "./shell.js";
 import { BlobStore, hashText, normalize, readSnapshot, sameRef, type SnapRef, type Snapshot } from "./snapshot.js";
 import { formatFeedback, type FeedbackItem } from "./feedback.js";
 
@@ -100,6 +101,7 @@ export class ReviewStore {
   state: State = emptyState();
   /** Pi-style capture: before-snapshots of in-flight tool calls. */
   pending = new Map<string, { path: string; before: Snapshot }>();
+  shellPending = new Map<string, Map<string, Snapshot>>();
   private statCache = new Map<string, { added: number; removed: number }>();
 
   constructor(public cwd: string, public statePath: string, public sessionId: string, public blobs: BlobStore) {
@@ -140,10 +142,26 @@ export class ReviewStore {
     this.pending.set(id, { path, before: readSnapshot(path) });
   }
 
+  /**
+   * A shell command is about to run: remember the files it may write (paths it
+   * names, and files already in the review) so `end` can record what changed.
+   */
+  beginShell(id: string, command: string, cwd = this.cwd) {
+    const paths = [...new Set([...shellPaths(command, cwd), ...Object.keys(this.state.files)])].filter(path => !isNoise(path, this.cwd)).slice(0, 300);
+    this.shellPending.set(id, new Map(paths.map(path => [path, readSnapshot(path)])));
+  }
+
   end(id: string, failed: boolean) {
     const pending = this.pending.get(id);
     this.pending.delete(id);
     if (pending && !failed) this.record(pending.path, pending.before, readSnapshot(pending.path));
+    // A failed command may still have written files.
+    const shell = this.shellPending.get(id);
+    this.shellPending.delete(id);
+    for (const [path, before] of shell ?? []) {
+      const after = readSnapshot(path);
+      if (after.text !== before.text && (after.text !== null || before.text !== null)) this.record(path, before, after);
+    }
   }
 
   /** Latest recorded version of a path, before the current capture. */

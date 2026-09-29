@@ -33,6 +33,11 @@ suite("pi host: capture, commands, Done into the editor", async () => {
   await hooks.get("tool_call")!({ toolName: "edit", toolCallId: "t1", input: { path: "notes.md" } });
   writeFileSync(file, "# New\n");
   await hooks.get("tool_execution_end")!({ toolCallId: "t1", isError: false });
+  // A bash edit: the file named in the command is snapshotted before it runs.
+  const script = join(box.directory, "run.sh");
+  await hooks.get("tool_call")!({ toolName: "bash", toolCallId: "t2", input: { command: "sed -i '' 's/New/Newer/' notes.md && printf 'x' > run.sh" } });
+  writeFileSync(file, "# Newer\n"); writeFileSync(script, "x");
+  await hooks.get("tool_execution_end")!({ toolCallId: "t2", isError: false });
   branch.push({ type: "message", id: "u1", message: { role: "user", content: "Rename the title" } });
   branch.push({ type: "message", id: "a1", message: { role: "assistant", content: [{ type: "text", text: "Renamed it." }] } });
   await hooks.get("agent_settled")!({}, ctx);
@@ -45,7 +50,7 @@ suite("pi host: capture, commands, Done into the editor", async () => {
   const headers = { "X-Nitpeek-Token": token, "Content-Type": "application/json" };
   const overview = await (await fetch(url + "/api/review/overview", { headers })).json();
   assert.equal(overview.requests[0].prompt, "Rename the title");
-  assert.equal(overview.requests[0].files[0].path, file);
+  assert.deepEqual(overview.requests[0].files.map((f: any) => f.path).sort(), [file, script].sort(), "bash edits and created files are captured");
   assert.equal(overview.target.path, "message:a1");
   assert.equal(overview.activity.state, "idle");
   const doc = await (await fetch(url + "/api/review/document?path=message%3Aa1", { headers })).json();

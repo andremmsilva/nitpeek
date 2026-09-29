@@ -11,7 +11,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync, statSy
 import { connect } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { STORAGE, socketPath, type DaemonConfig, type OpenRequest, type Target } from "./shared.js";
+import { STORAGE, projectDir, socketPath, type DaemonConfig, type OpenRequest, type Target } from "./shared.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
@@ -66,7 +66,7 @@ async function ensureDaemon(input: any, target: Target) {
   }
   try {
     if (owner) {
-      const config: DaemonConfig = { sessionId: input.session_id, transcriptPath: input.transcript_path, cwd: input.cwd, claudePid: claudePid(), codeStamp: stamp, target };
+      const config: DaemonConfig = { sessionId: input.session_id, transcriptPath: input.transcript_path, cwd: projectDir(input), claudePid: claudePid(), codeStamp: stamp, target };
       const log = openSync(join(STORAGE, "daemon.log"), "a", 0o600);
       spawn(process.execPath, [join(here, "daemon.ts"), JSON.stringify(config)], { detached: true, stdio: ["ignore", log, log], cwd: root }).unref();
     }
@@ -102,8 +102,9 @@ async function main() {
   const request: OpenRequest = { cmd: "open", target };
   if (command === "annotate-last") request.last = true;
   else if (args) {
-    const path = resolve(input.cwd, args.startsWith("~/") ? join(process.env.HOME ?? "", args.slice(2)) : args);
-    if (!existsSync(path)) throw new Error(`File not found: ${path}`);
+    const given = args.startsWith("~/") ? join(process.env.HOME ?? "", args.slice(2)) : args;
+    const path = [resolve(input.cwd, given), resolve(projectDir(input), given)].find(p => existsSync(p));
+    if (!path) throw new Error(`File not found: ${resolve(input.cwd, given)}`);
     request.file = path;
   }
   await ensureDaemon(input, target);

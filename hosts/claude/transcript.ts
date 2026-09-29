@@ -4,7 +4,8 @@
  * Claude Code appends every conversation entry to a JSONL transcript. Edit and
  * Write results carry `originalFile` plus enough information to rebuild the
  * written content, so captured diffs need no tool hooks and even cover edits
- * made before /annotate was first opened. Subagent transcripts (in
+ * made before /annotate was first opened. Files changed by shell commands are
+ * found from each Bash call's timing (see shell.ts). Subagent transcripts (in
  * `<session>/subagents/`) contribute file edits only.
  */
 
@@ -12,7 +13,8 @@ import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, s
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { ReviewStore } from "../../core/store.js";
-import { fromText as textSnapshot, type Snapshot } from "../../core/snapshot.js";
+import { fromText as textSnapshot, readSnapshot, type Snapshot } from "../../core/snapshot.js";
+import { committedBefore, repositoryChanges, shellPaths, touchedDuring, WINDOW_SLACK } from "../../core/shell.js";
 
 const MAX_FILE = 512 * 1024;
 
@@ -81,6 +83,10 @@ export class TranscriptFeed {
   private known = new Map<string, string | null>();
   /** Text of the assistant message currently being streamed, keyed by message id. */
   private group: { id: string; entryId: string; text: string[]; toolUse: boolean; final: boolean } | undefined;
+  /** Bash calls waiting for their result, by tool_use id. */
+  private shell = new Map<string, { command: string; cwd: string; start: number }>();
+  /** When the Edit/Write tools last recorded each path. */
+  private edited = new Map<string, number>();
 
   constructor(private store: ReviewStore, public transcriptPath: string, public tail: TailState = { offsets: {}, pendingPrompt: false }) {
     if (typeof tail.pendingPrompt !== "string") tail.pendingPrompt = false;
@@ -92,18 +98,28 @@ export class TranscriptFeed {
     catch { return []; }
   }
 
-  /** Read newly appended complete lines. Returns true when anything was consumed. */
+  /**
+   * Read newly appended complete lines. Returns true when anything was consumed.
+   * Entries from the main and subagent transcripts are applied in time order,
+   * so a subagent's edit lands in the request it happened in, even when a
+   * whole session is read at once.
+   */
   poll(): boolean {
     let consumed = false;
+    const batch: { entry: any; main: boolean; at: number; order: number }[] = [];
     for (const file of [this.transcriptPath, ...this.subagentFiles()]) {
       const main = file === this.transcriptPath;
+      let at = 0;
       for (const line of this.readLines(file)) {
         consumed = true;
         let entry: any;
         try { entry = JSON.parse(line); } catch { continue; }
-        this.apply(entry, main);
+        at = Date.parse(entry.timestamp) || at;
+        batch.push({ entry, main, at, order: batch.length });
       }
     }
+    batch.sort((a, b) => a.at - b.at || a.order - b.order);
+    for (const { entry, main } of batch) this.apply(entry, main);
     // A quiet transcript means the streamed message is complete.
     if (!consumed) this.flush();
     return consumed;
@@ -139,9 +155,31 @@ export class TranscriptFeed {
   apply(entry: any, main = true) {
     if (entry.type === "user" && entry.toolUseResult) {
       const result = entry.toolUseResult;
+      // A full Read shows the file as it was: a base for later shell edits.
+      const read = result.type === "text" ? result.file : undefined;
+      if (read && typeof read.filePath === "string" && typeof read.content === "string" && read.startLine === 1 && read.numLines >= read.totalLines && !read.truncatedByTokenCap) {
+        this.known.set(read.filePath, read.content);
+      }
       const change = mutation(result, path => this.lastKnown(path) ?? reverted(path, result));
-      if (change) { this.store.record(change.path, change.before, change.after); this.known.set(change.path, change.after.text); }
+      if (change) {
+        this.store.record(change.path, change.before, change.after);
+        this.known.set(change.path, change.after.text);
+        this.edited.set(change.path, Date.parse(entry.timestamp) || Date.now());
+      }
+      for (const block of Array.isArray(entry.message?.content) ? entry.message.content : []) {
+        const call = block?.type === "tool_result" ? this.shell.get(block.tool_use_id) : undefined;
+        if (!call) continue;
+        this.shell.delete(block.tool_use_id);
+        this.shellEffects(call, Date.parse(entry.timestamp) || Date.now());
+      }
       return;
+    }
+    if (entry.type === "assistant") {
+      for (const block of entry.message?.content ?? []) {
+        if (block?.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string") {
+          this.shell.set(block.id, { command: block.input.command, cwd: entry.cwd || this.store.cwd, start: Date.parse(entry.timestamp) || Date.now() });
+        }
+      }
     }
     if (entry.type === "file-history-delta" && typeof entry.trackingPath === "string" && entry.backup) {
       this.backup(entry.trackingPath, entry.backup.backupFileName ?? null);
@@ -171,6 +209,22 @@ export class TranscriptFeed {
       if (block?.type === "tool_use") this.group.toolUse = true;
     }
     if (message.stop_reason && message.stop_reason !== "tool_use") this.group.final = true;
+  }
+
+  /** Record the files a Bash call changed while it ran. */
+  private shellEffects(call: { command: string; cwd: string; start: number }, end: number) {
+    const candidates = [...shellPaths(call.command, call.cwd), ...Object.keys(this.store.state.files), ...repositoryChanges(this.store.cwd)];
+    for (const { path, created } of touchedDuring(candidates, call.start, end, this.store.cwd)) {
+      const editedAt = this.edited.get(path);
+      if (editedAt && editedAt >= call.start - WINDOW_SLACK) continue; // an Edit/Write in parallel already recorded it
+      const after = readSnapshot(path);
+      const known = this.lastKnown(path);
+      const before: Snapshot = known !== undefined ? textSnapshot(known)
+        : created ? { text: null }
+        : committedBefore(path, call.start) ?? { text: null, error: "Earlier version unknown (changed by a shell command)" };
+      this.store.record(path, before, after);
+      this.known.set(path, after.text);
+    }
   }
 
   /** Publish the pending assistant message if it was a completed textual answer. */
