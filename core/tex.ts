@@ -58,6 +58,35 @@ const CITES = new Set(["cite", "citep", "citet", "citealp", "citealt", "citeauth
 const ACCENTS: Record<string, string> = { "'": "́", "`": "̀", "^": "̂", '"': "̈", "~": "̃", "=": "̄",
   ".": "̇", u: "̆", v: "̌", H: "̋", c: "̧", k: "̨", r: "̊", d: "̣", b: "̱" };
 
+/**
+ * Pseudocode statements (algpseudocode/algorithmicx, and the older algorithmic
+ * package's uppercase names). `open`/`close` indent and dedent the lines after
+ * and at the statement; `args` are its braced arguments.
+ */
+type Statement = { before?: string; after?: string; args?: number; open?: boolean; close?: boolean; unnumbered?: boolean; call?: boolean };
+const STATEMENTS: Record<string, Statement> = {
+  State: {}, Statex: { unnumbered: true },
+  Require: { before: "Require:", unnumbered: true }, Ensure: { before: "Ensure:", unnumbered: true },
+  Input: { before: "Input:", unnumbered: true }, Output: { before: "Output:", unnumbered: true },
+  If: { before: "if", after: "then", args: 1, open: true }, ElsIf: { before: "else if", after: "then", args: 1, close: true, open: true },
+  Else: { before: "else", close: true, open: true }, EndIf: { before: "end if", close: true },
+  For: { before: "for", after: "do", args: 1, open: true }, ForAll: { before: "for all", after: "do", args: 1, open: true }, EndFor: { before: "end for", close: true },
+  While: { before: "while", after: "do", args: 1, open: true }, EndWhile: { before: "end while", close: true },
+  Repeat: { before: "repeat", open: true }, Until: { before: "until", args: 1, close: true },
+  Loop: { before: "loop", open: true }, EndLoop: { before: "end loop", close: true },
+  Function: { before: "function", args: 2, call: true, open: true }, EndFunction: { before: "end function", close: true },
+  Procedure: { before: "procedure", args: 2, call: true, open: true }, EndProcedure: { before: "end procedure", close: true },
+};
+const OLD_STATEMENTS: Record<string, string> = {
+  STATE: "State", REQUIRE: "Require", ENSURE: "Ensure", IF: "If", ELSIF: "ElsIf", ELSE: "Else", ENDIF: "EndIf", FOR: "For",
+  FORALL: "ForAll", ENDFOR: "EndFor", WHILE: "While", ENDWHILE: "EndWhile", REPEAT: "Repeat", UNTIL: "Until", LOOP: "Loop", ENDLOOP: "EndLoop",
+};
+/** Keywords used inside a statement. */
+const ALGO_WORDS: Record<string, string> = {
+  Return: "return", RETURN: "return", PRINT: "print", And: "and", AND: "and", Or: "or", OR: "or", Not: "not", NOT: "not",
+  True: "true", TRUE: "true", False: "false", FALSE: "false", To: "to", TO: "to",
+};
+
 type Group = { start: number; end: number; next: number };
 
 class TexReader {
@@ -69,6 +98,10 @@ class TexReader {
   /** Preamble lines that pictures need: libraries, styles, colors, macros. */
   private tikzPreamble = "";
   private meta: Record<string, string> = {};
+  /** Inside pseudocode, where \Return, \Comment and \Call mean something. */
+  private pseudocode = false;
+  /** A statement's `\\Comment`s, set aside to float at the line's right. */
+  private comments: string[] = [];
 
   constructor(private src: string) {}
 
@@ -322,6 +355,7 @@ class TexReader {
       const language = name === "minted" ? options?.[2]?.slice(1, -1) ?? null : null;
       return { html: codeBlock(code.replace(/\n$/, ""), language, language ?? "", attrs), next };
     }
+    if (name === "algorithmic") return { html: this.algorithmic(bodyStart, bodyEnd), next };
     if (name in LIST_ENVS) return { html: this.list(name, start, bodyStart, bodyEnd, next), next };
     if (/^(tabular|tabularx|longtable)\*?$/.test(name)) return { html: this.table(start, bodyStart, bodyEnd, next, name), next };
     const plain = name.replace(/\*$/, "");
@@ -462,6 +496,51 @@ class TexReader {
     return `<table class="tex-table"><tbody>${html}</tbody></table>\n`;
   }
 
+  /** One row per statement, indented by block, numbered as `[n]` asks. */
+  private algorithmic(bodyStart: number, bodyEnd: number): string {
+    const option = this.group(bodyStart, "[");
+    const every = option && !this.src.slice(bodyStart, option.start - 1).trim() ? Number(this.text(option)) || 0 : 0;
+    const found: { name: string; start: number; next: number }[] = [];
+    const pattern = /\\(begin|end)\s*\{[^{}]+\}|\\([A-Za-z]+)|\\.|%[^\n]*|[{}]/g;
+    pattern.lastIndex = option?.next ?? bodyStart;
+    let depth = 0, envs = 0, match: RegExpExecArray | null;
+    while ((match = pattern.exec(this.src)) && match.index < bodyEnd) {
+      if (match[0] === "{") depth++;
+      else if (match[0] === "}") depth--;
+      else if (match[1]) envs += match[1] === "begin" ? 1 : -1;
+      else if (match[2] && depth === 0 && envs === 0) {
+        const name = OLD_STATEMENTS[match[2]] ?? match[2];
+        if (name in STATEMENTS) found.push({ name, start: match.index, next: match.index + match[0].length });
+      }
+    }
+    let indent = 0, number = 0, html = "";
+    this.pseudocode = true;
+    found.forEach((statement, i) => {
+      const kind = STATEMENTS[statement.name];
+      const end = found[i + 1]?.start ?? bodyEnd;
+      let at = statement.next;
+      if (this.src[this.skipSpace(at)] === "[") at = this.group(at, "[")?.next ?? at;
+      const args: string[] = [];
+      this.comments = [];
+      for (let n = 0; n < (kind.args ?? 0); n++) {
+        const group = this.group(at);
+        if (!group) break;
+        args.push(this.inline(group.start, group.end).trim());
+        at = group.next;
+      }
+      if (kind.close) indent = Math.max(0, indent - 1);
+      const head = kind.call ? `<strong>${kind.before}</strong> <span class="tex-sc">${args[0] ?? ""}</span>(${args[1] ?? ""})`
+        : [kind.before && `<strong>${kind.before}</strong>`, args[0], kind.after && `<strong>${kind.after}</strong>`].filter(Boolean).join(" ");
+      const rest = this.inline(at, end).trim();
+      const comments = this.comments.splice(0).join("");
+      const numbered = !kind.unnumbered && every > 0 && ++number % every === 0;
+      html += `<div${this.attrs(statement.start, end, "tex-algo-line")}${numbered ? ` data-n="${number}"` : ""} style="padding-left: ${indent * 1.4}em">${comments}${[head, rest].filter(Boolean).join(" ")}</div>`;
+      if (kind.open) indent++;
+    });
+    this.pseudocode = false;
+    return `<div class="tex-algo${every > 0 ? " numbered" : ""}">${html}</div>\n`;
+  }
+
   private float(name: string, bodyStart: number, bodyEnd: number): string {
     const kind = FLOATS[name];
     const counter = kind.toLowerCase();
@@ -535,6 +614,17 @@ class TexReader {
       const group = this.group(next);
       if (!group) return { html: "", next };
       return { html: FORMAT[name][0] + this.inline(group.start, group.end) + FORMAT[name][1], next: group.next };
+    }
+    if (this.pseudocode) {
+      if (name in ALGO_WORDS) return { html: `<strong>${ALGO_WORDS[name]}</strong>`, next };
+      if (name === "Comment" || name === "COMMENT") {
+        const group = this.group(next);
+        if (group) { this.comments.push(`<span class="tex-algo-comment">▷ ${this.inline(group.start, group.end)}</span>`); return { html: "", next: group.next }; }
+      }
+      if (name === "Call") {
+        const callee = this.group(next), args = callee && this.group(callee.next);
+        if (callee && args) return { html: `<span class="tex-sc">${this.inline(callee.start, callee.end)}</span>(${this.inline(args.start, args.end)})`, next: args.next };
+      }
     }
     if (name in SYMBOLS) return { html: escapeHtml(SYMBOLS[name]), next: src.startsWith("{}", next) ? next + 2 : next };
     if (name === "label") {

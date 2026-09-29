@@ -57,7 +57,7 @@ code { font-family: var(--mono); }
 .tag { font-size: 11px; padding: 1px 6px; border-radius: 99px; background: var(--raised); color: var(--muted); border: 1px solid var(--line); }
 .tag.warn { color: var(--danger); }
 
-button:not(.link):not(.row):not(.chip):not(.hit):not(.crumb):not(.group-head):not(.twisty):not(.search):not(.section-head) {
+button:not(.link):not(.row):not(.chip):not(.hit):not(.crumb):not(.group-head):not(.twisty):not(.search):not(.section-head):not(.ol):not(.more-notes) {
   background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px;
 }
 button.primary { background: var(--accent) !important; color: var(--accent-ink); border-color: transparent !important; font-weight: 600; }
@@ -174,6 +174,37 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .doc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; padding: 22px 22px 120px 28px; min-height: 100%; }
 .doc-grid.reading { grid-template-columns: minmax(0, 720px) 300px; justify-content: center; }
 .doc-scroll.narrow .doc-grid { grid-template-columns: minmax(0, 1fr); }
+.doc-scroll { container-type: inline-size; }
+
+/* Where the agent changed the text, beside the rendered blocks or source rows. */
+.changed-bar { position: absolute; left: -14px; width: 3px; border-radius: 2px; background: var(--add-ink); opacity: .55; pointer-events: none; }
+.content.lines .changed-bar { left: -8px; }
+
+/* Contents: a column left of the reading view when there is room. */
+.doc-grid.reading.outlined { grid-template-columns: 180px minmax(0, 720px) 300px; }
+.outline { position: sticky; top: 12px; align-self: start; overflow: auto; font-size: 12px; padding-right: 4px; }
+.outline-title { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); padding: 0 8px 6px; }
+.ol { display: flex; align-items: center; gap: 4px; width: 100%; background: none; border: 0; border-left: 2px solid transparent; border-radius: 0; padding: 3px 6px 3px 8px; text-align: left; color: var(--muted); line-height: 1.35; }
+.ol:hover { color: var(--text); background: var(--accent-soft); }
+.ol.on { color: var(--text); border-left-color: var(--accent); }
+.ol-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--intent); }
+.ol-changed { flex: none; width: 3px; height: 11px; border-radius: 2px; background: var(--add-ink); opacity: .7; }
+@container (max-width: 1080px) {
+  .doc-grid.reading.outlined { grid-template-columns: minmax(0, 720px) 300px; }
+  .outline { display: none; }
+}
+
+/* The whole document at scrollbar scale, pinned to the right edge. */
+.strip-anchor { position: sticky; top: 0; height: 0; z-index: 6; }
+.strip { position: absolute; right: 10px; top: 0; width: 8px; cursor: pointer; }
+.strip::before { content: ""; position: absolute; inset: 4px 3px; border-radius: 1px; background: var(--line-soft); }
+.strip-view { position: absolute; left: 0; right: 0; border-radius: 3px; background: var(--accent-soft); border: 1px solid var(--line); pointer-events: none; }
+.tick { position: absolute; left: 0; right: 0; height: 2px; }
+.tick.heading { left: 2px; right: 2px; height: 1px; background: var(--faint); }
+.tick.change { left: 0; width: 3px; right: auto; min-height: 2px; background: var(--add-ink); opacity: .7; }
+.tick.note { left: 3px; height: 4px; margin-top: -1px; border-radius: 1px; background: var(--intent); }
+.tick.note:hover { transform: scaleY(1.6); }
 .content { min-width: 0; position: relative; }
 
 /* Reading mode */
@@ -246,6 +277,12 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .tex-sc { font-variant: small-caps; }
 .tex-float { margin: 0 0 1.4em; padding: 12px 16px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
 .tex-float table { margin: 0 auto .8em; }
+.tex-algo { margin: .2em 0 .8em; line-height: 1.6; }
+.tex-algo.numbered { padding-left: 2.2em; }
+.tex-algo-line { position: relative; padding: 1px 0; }
+.tex-algo-line[data-n]::before { content: attr(data-n); position: absolute; left: -2.2em; width: 1.6em; text-align: right; color: var(--faint); font: .8em/2 var(--ui); user-select: none; }
+.tex-algo-line::after { content: ""; display: block; clear: both; }
+.tex-algo-comment { float: right; margin-left: 1.5em; color: var(--muted); font-style: italic; }
 .tex-caption { display: block; font-size: .9em; color: var(--muted); text-align: center; }
 .tex-caption::before { content: attr(data-kind) " "; color: var(--text); font-weight: 600; }
 .tex-graphic { display: inline-block; font: 12px var(--mono); color: var(--faint); border: 1px dashed var(--line); border-radius: var(--radius); padding: 18px 24px; }
@@ -301,6 +338,13 @@ mark.np-note.active { background: color-mix(in srgb, var(--intent) 42%, transpar
 .margin { position: relative; }
 .margin-empty { position: sticky; top: 8px; text-align: center; padding: 22px 12px; border: 1px dashed var(--line); border-radius: var(--radius); }
 .margin-empty span { font-size: 11px; }
+/* Pinned to the visible part of the margin: -22px undoes the grid's top padding. */
+.margin-nav { position: sticky; top: 0; height: 0; margin-top: -22px; z-index: 5; pointer-events: none; }
+.margin-nav-frame { position: absolute; left: 0; right: 0; top: 0; }
+.more-notes { position: absolute; left: 50%; transform: translateX(-50%); pointer-events: auto; white-space: nowrap; font-size: 11.5px; padding: 3px 12px; border-radius: 99px; background: var(--raised); border: 1px solid var(--line); color: var(--muted); box-shadow: var(--shadow); }
+.more-notes:hover { color: var(--text); border-color: var(--accent); }
+.more-notes.up { top: 8px; }
+.more-notes.down { bottom: 12px; }
 .card { position: absolute; left: 0; right: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--intent); transition: top .15s ease, box-shadow .15s; cursor: default; }
 .card.active { box-shadow: 0 0 0 1px var(--intent), var(--shadow); z-index: 2; }
 .card.lost { opacity: .75; border-left-style: dashed; }

@@ -109,6 +109,8 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
 
     // A LaTeX file: clicking a formula selects it whole; the note quotes its source.
     await page.click('.row[data-path$="main.tex"]');
+    // The previous document has tabs too: wait for this one.
+    await page.waitForFunction(() => /main\.tex/.test(document.querySelector(".doc-head")?.textContent ?? ""));
     await page.waitForSelector(".tabs");
     await page.$$eval(".tabs button", buttons => (buttons.find(b => b.textContent === "Rendered") as HTMLElement).click());
     await page.waitForSelector(".prose .np-math.display");
@@ -123,6 +125,32 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     await page.keyboard.type("Why not QR?");
     await saveNote();
     assert.equal(await page.$$eval(".np-math.np-noted.i-question", m => m.length), 1, "the noted formula is highlighted");
+    // A note scrolled out of view: the margin offers to go back to it.
+    await page.setViewport({ width: 1400, height: 320 });
+    await page.$eval(".doc-scroll", e => e.scrollTo(0, e.scrollHeight));
+    await page.waitForSelector(".more-notes.up");
+    assert.equal(await page.$(".more-notes.down"), null);
+    await page.click(".more-notes.up");
+    await page.waitForFunction(() => !document.querySelector(".more-notes"), { timeout: 3000 });
+    await wait(500);
+    // Switching views keeps the focused note where it was on screen…
+    const markY = () => page.$eval(".np-math.np-noted, mark.np-note.active", e => Math.round(e.getBoundingClientRect().top));
+    const before = await markY();
+    await page.keyboard.press("s");
+    await wait(300);
+    assert.ok(Math.abs(await markY() - before) < 4, "the focused note stays put across views");
+    // …and otherwise the same source line at the top.
+    await page.keyboard.press("Escape");
+    await page.$eval('.ln[data-line="27"]', e => { const s = e.closest(".doc-scroll")!; s.scrollTop += e.getBoundingClientRect().top - s.getBoundingClientRect().top; });
+    await wait(300);
+    await page.keyboard.press("s");
+    await wait(300);
+    const topBlock = await page.$eval(".doc-scroll", s => {
+      const t = s.getBoundingClientRect().top;
+      return [...s.querySelectorAll<HTMLElement>(".prose .md-block")].find(e => !e.querySelector(".md-block") && e.getBoundingClientRect().bottom > t + 2)!.textContent!;
+    });
+    assert.match(topBlock, /^\\begin\{tikzpicture\}/, "Source line 27 → the figure in Rendered");
+    await page.setViewport({ width: 1400, height: 900 });
     await page.click(".done-button");
     await page.waitForSelector(".preview");
     assert.match(await page.$eval(".preview", e => e.textContent!), /\[1\] question · paper\/main\.tex:14-17\n> \\begin\{equation\}\n> {3}\\hat\\beta = \(X\^\\top X\)/);

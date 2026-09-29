@@ -3,6 +3,8 @@ import { clearMarks, markLines, markProse, resolveNote, selectLines, selectProse
 import { contextOf } from "../../core/quote";
 import { atomize, decorateMath, hydrateMath, hydrateTikz, selectMath, trackMathSelection } from "../math";
 import { get } from "../api";
+import { capturePlace, changedLines, HEADINGS, measureMap, restorePlace, type DocMap, type Place } from "../place";
+import { Outline, Strip } from "./DocMap";
 import { INTENTS, type Doc, type Intent, type Note, type View } from "../types";
 
 type Props = {
@@ -85,15 +87,61 @@ export function DocView(props: Props) {
   const [toolbar, setToolbar] = useState<{ anchor: Anchor; view: "document" | "diff" } | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [undo, setUndo] = useState<Note[] | null>(null);
+  const [offscreen, setOffscreen] = useState({ above: 0, below: 0, height: 0 });
   const kind = view === "diff" ? "diff" : view === "source" || (doc.kind === "file" && !doc.rendered) ? "lines" : "prose";
 
   useEffect(() => { props.onBusy(!!draft); }, [draft]);
-  // A new document remounts this component; switching views keeps it, so reset here.
-  const firstView = useRef(true);
-  useEffect(() => {
-    if (firstView.current) { firstView.current = false; return; }
-    setToolbar(null); setDraft(null); scroller.current?.scrollTo(0, 0);
-  }, [view]);
+
+  // Where the reader is, kept up to date so a view switch can return there:
+  // the focused note if it is on screen, else the source line at the top.
+  const reading = useRef<Place | null>(null);
+  const notePlace = useRef<{ id: string; y: number } | null>(null);
+  const placeText = () => kind === "diff" ? doc.diff!.newText : doc.text;
+  function capture() {
+    const el = scroller.current, root = content.current;
+    if (!el || !root) return;
+    reading.current = capturePlace(el, root, kind, placeText());
+    const mark = active ? visibleMark(root.querySelector<HTMLElement>(`mark[data-note="${active}"]`)) : null;
+    const box = el.getBoundingClientRect(), rect = mark?.getBoundingClientRect();
+    notePlace.current = rect && rect.bottom > box.top && rect.top < box.bottom ? { id: active!, y: rect.top - box.top } : null;
+  }
+  useEffect(capture, [active]);
+
+  // The document at a glance: headings, what the agent changed, where notes are.
+  const grid = useRef<HTMLDivElement>(null);
+  const stripView = useRef<HTMLDivElement>(null);
+  const [map, setMap] = useState<DocMap | null>(null);
+  const [section, setSection] = useState(-1);
+  const created = !!doc.diff && doc.diff.removed === 0 && doc.diff.hunks[0]?.oldStart === 0;
+  const changed = useMemo(() => kind === "diff" || created ? null : changedLines(doc.diff, doc.text), [doc, kind]);
+  useLayoutEffect(() => {
+    const el = scroller.current, root = content.current;
+    if (!el || !root) return;
+    const update = () => setMap(measureMap(el, root, kind, doc.text, changed));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    if (grid.current) observer.observe(grid.current);
+    return () => observer.disconnect();
+  }, [doc, kind, changed]);
+
+  /** Moves the strip's viewport box and the outline's current section with the scroll. */
+  function track() {
+    const el = scroller.current;
+    if (!el || !map) return;
+    if (stripView.current) {
+      stripView.current.style.top = (el.scrollTop / el.scrollHeight) * 100 + "%";
+      stripView.current.style.height = (el.clientHeight / el.scrollHeight) * 100 + "%";
+    }
+    const y = el.scrollTop - map.offset + 80;
+    setSection(map.headings.reduce((current, h, i) => (h.top <= y ? i : current), -1));
+  }
+  useLayoutEffect(track, [map, offscreen.height]);
+
+  function jumpToHeading(index: number) {
+    const heading = content.current?.querySelectorAll<HTMLElement>(HEADINGS)[index], el = scroller.current;
+    if (heading && el) el.scrollTo({ top: el.scrollTop + heading.getBoundingClientRect().top - el.getBoundingClientRect().top - 16, behavior: "smooth" });
+  }
 
   // Word-level diff emphasis, applied once per render of the rows.
   useLayoutEffect(() => {
@@ -143,6 +191,19 @@ export function DocView(props: Props) {
     setTops(next);
   }, [doc, view, notes, active, kind, props.wrap]);
 
+  // A new document remounts this component; switching views keeps it, so reset
+  // here and scroll back to the same place (after the note marks are drawn).
+  const firstView = useRef(true);
+  useLayoutEffect(() => {
+    if (firstView.current) { firstView.current = false; return; }
+    setToolbar(null); setDraft(null);
+    const el = scroller.current!, root = content.current!, note = notePlace.current;
+    const mark = note ? visibleMark(root.querySelector<HTMLElement>(`mark[data-note="${note.id}"]`)) : null;
+    if (mark) el.scrollTop += mark.getBoundingClientRect().top - el.getBoundingClientRect().top - note!.y;
+    else restorePlace(el, root, kind, placeText(), reading.current);
+    capture();
+  }, [view]);
+
   // Stack margin cards at their anchors without overlapping.
   useLayoutEffect(() => {
     const column = margin.current;
@@ -156,10 +217,60 @@ export function DocView(props: Props) {
       floor = top + card.offsetHeight + 8;
     }
     column.style.minHeight = floor + "px";
+    measureOffscreen();
   });
 
+  /** How many margin cards sit wholly above or below what is on screen. */
+  function offscreenCards() {
+    const column = margin.current, box = scroller.current?.getBoundingClientRect();
+    const above: HTMLElement[] = [], below: HTMLElement[] = [];
+    if (!column || !box || props.narrow) return { above, below };
+    // From the laid-out tops, not the rects: cards slide to their places.
+    const origin = column.getBoundingClientRect().top;
+    for (const card of Array.from(column.querySelectorAll<HTMLElement>(".card[data-id]"))) {
+      const top = origin + parseFloat(card.style.top || "0");
+      if (top + card.offsetHeight <= box.top) above.push(card);
+      else if (top >= box.bottom) below.push(card);
+    }
+    return { above, below };
+  }
+
+  function measureOffscreen() {
+    const { above, below } = offscreenCards();
+    const height = scroller.current?.clientHeight ?? 0;
+    setOffscreen(o => o.above === above.length && o.below === below.length && o.height === height ? o : { above: above.length, below: below.length, height });
+  }
+
+  const onScroll = useRef(() => {});
+  onScroll.current = () => { measureOffscreen(); capture(); track(); };
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let frame = 0;
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => onScroll.current()); };
+    el.addEventListener("scroll", schedule, { passive: true });
+    addEventListener("resize", schedule);
+    return () => { cancelAnimationFrame(frame); el.removeEventListener("scroll", schedule); removeEventListener("resize", schedule); };
+  }, []);
+
+  /** Focuses a note and brings its highlight (or, without one, its card) into view. */
+  function reveal(id: string) {
+    setActive(id);
+    const target = visibleMark(content.current?.querySelector<HTMLElement>(`mark[data-note="${id}"]`) ?? null)
+      ?? margin.current?.querySelector<HTMLElement>(`.card[data-id="${id}"]`);
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  /** The nearest off-screen note in a direction. */
+  function revealNext(direction: "above" | "below") {
+    const cards = offscreenCards()[direction];
+    const card = direction === "above" ? cards.reduce<HTMLElement | undefined>((a, c) => !a || parseFloat(c.style.top) > parseFloat(a.style.top) ? c : a, undefined)
+      : cards.reduce<HTMLElement | undefined>((a, c) => !a || parseFloat(c.style.top) < parseFloat(a.style.top) ? c : a, undefined);
+    if (card) reveal(card.dataset.id!);
+  }
+
   function onMouseUp(event: MouseEvent) {
-    if ((event.target as Element).closest(".card, .composer, .toolbar, .np-wrap")) return;
+    if ((event.target as Element).closest(".card, .composer, .toolbar, .np-wrap, .more-notes, .strip, .outline")) return;
     const math = kind === "prose" ? (event.target as Element).closest<HTMLElement>(".np-math") : null;
     requestAnimationFrame(() => {
       const selection = getSelection();
@@ -246,24 +357,36 @@ export function DocView(props: Props) {
   const suggested = toolbar ? suggestIntent(doc, toolbar.anchor.quote) : "change";
   const ordered = useMemo(() => [...notes].sort((a, b) => (tops[a.id] ?? -1) - (tops[b.id] ?? -1)), [notes, tops]);
   const showMargin = !props.narrow || props.notesOpen;
+  const placed = ordered.filter(n => tops[n.id] !== undefined && !unanchored.includes(n.id)).map(note => ({ note, top: tops[note.id] }));
+  const outlined = kind === "prose" && !props.narrow && (map?.headings.length ?? 0) >= 2;
+  const strip = map && offscreen.height > 0 && map.total > offscreen.height * 1.5;
 
   return (
     <div class={"doc-scroll" + (props.narrow ? " narrow" : "")} ref={scroller} onMouseUp={onMouseUp} onClick={onClick}>
-      <div class={"doc-grid" + (kind === "prose" ? " reading" : "")}>
+      {strip && <Strip map={map!} notes={placed} height={offscreen.height} viewBox={stripView} onNote={reveal}
+        onSeek={f => scroller.current!.scrollTo({ top: f * map!.total - offscreen.height / 2, behavior: "smooth" })} />}
+      <div class={"doc-grid" + (kind === "prose" ? " reading" : "") + (outlined ? " outlined" : "")} ref={grid}>
+        {outlined && <Outline map={map!} notes={placed} section={section} height={offscreen.height} onJump={jumpToHeading} />}
         <div class={`content ${kind}` + (props.wrap ? " wrap" : "")} ref={content} onClick={onGutter as any}>
+          {map?.changes.map((c, i) => <i key={"chg" + i} class="changed-bar" style={{ top: c.top + "px", height: c.height + "px" }} title="Changed" />)}
           {kind === "prose" && <div class="prose" dangerouslySetInnerHTML={{ __html: doc.html || "" }} />}
           {kind === "lines" && <div class="code"><Rows lines={doc.lines ?? []} attr="line" /></div>}
           {kind === "diff" && <div class={"code diff" + (doc.diff!.removed === 0 && doc.diff!.hunks[0]?.oldStart === 0 ? " created" : "")}><DiffRows doc={doc} /></div>}
         </div>
         {showMargin && (
           <aside class={"margin" + (props.narrow ? " drawer" : "")} ref={margin} aria-label="Notes">
+            {!props.narrow && (offscreen.above > 0 || offscreen.below > 0) && (
+              <div class="margin-nav">
+                <div class="margin-nav-frame" style={{ height: offscreen.height + "px" }}>
+                  {offscreen.above > 0 && <button type="button" class="more-notes up" title="Go to the previous note" onClick={() => revealNext("above")}>↑ {offscreen.above} more {offscreen.above === 1 ? "note" : "notes"}</button>}
+                  {offscreen.below > 0 && <button type="button" class="more-notes down" title="Go to the next note" onClick={() => revealNext("below")}>↓ {offscreen.below} more {offscreen.below === 1 ? "note" : "notes"}</button>}
+                </div>
+              </div>
+            )}
             {!notes.length && <p class="empty margin-empty">Select text to add a note.<br /><span>Or click a line number.</span></p>}
             {ordered.map(note => (
               <div key={note.id} data-id={note.id} class={`card i-${note.intent}` + (note.id === active ? " active" : "") + (unanchored.includes(note.id) ? " lost" : "")}
-                onMouseEnter={() => setActive(note.id)} onClick={() => {
-                  setActive(note.id);
-                  visibleMark(content.current?.querySelector<HTMLElement>(`mark[data-note="${note.id}"]`) ?? null)?.scrollIntoView({ block: "center", behavior: "smooth" });
-                }}>
+                onMouseEnter={() => setActive(note.id)} onClick={() => reveal(note.id)}>
                 <div class="card-head">
                   <span class={`chip i-${note.intent}`}>{intentOf(note.intent).label}</span>
                   {note.side === "old" && <span class="tag">removed text</span>}

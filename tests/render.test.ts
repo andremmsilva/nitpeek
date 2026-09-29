@@ -271,6 +271,29 @@ const visibleText = (html: string) => html.replace(/<template>[\s\S]*?<\/templat
   check("broken input does not throw", typeof renderTex("\\begin{itemize}\\item {unclosed $x") === "string" && typeof renderTex("\\section{") === "string");
 }
 
+// ── Pseudocode ─────────────────────────────────────────────────────────────
+{
+  const tex = String.raw`\begin{algorithmic}[1]
+\Require budget $B$
+\For{$t = 1,\ldots,B$}
+  \State $A \gets 0$ \Comment{shared model}
+  \If{$s$ is available}
+    \State \Return \Call{Best}{$W$}
+  \EndIf
+\EndFor
+\end{algorithmic}`;
+  const html = renderTex(tex);
+  const lines = [...html.matchAll(/<div class="md-block tex-algo-line" data-offset-start="(\d+)" data-offset-end="(\d+)"( data-n="(\d+)")? style="padding-left: ([\d.]+)em">/g)];
+  check("one row per statement", lines.length === 7 && !html.includes("tex-raw"));
+  check("Require is not numbered, statements are", lines[0][4] === undefined && lines.slice(1).map(l => l[4]).join() === "1,2,3,4,5,6");
+  check("blocks indent and close", lines.map(l => l[5]).join() === "0,0,1.4,1.4,2.8,1.4,0");
+  check("rows map to their statements", tex.slice(Number(lines[2][1]), Number(lines[2][2])).startsWith("\\State $A"));
+  const text = visibleText(html);
+  check("keywords and calls", /for\b.*\bdo/.test(text) && /if\b.*is available then/.test(text) && text.includes("end if") && text.includes("end for") && html.includes('<strong>return</strong> <span class="tex-sc">Best</span>('));
+  check("comments float at the row's right", /style="padding-left: 1.4em"><span class="tex-algo-comment">▷ shared model<\/span>/.test(html));
+  check("old algorithmic names", (renderTex("\\begin{algorithmic}\\STATE x \\IF{y} \\STATE z \\ENDIF\\end{algorithmic}").match(/tex-algo-line/g) ?? []).length === 4);
+}
+
 // ── TikZ ───────────────────────────────────────────────────────────────────
 {
   const { tikzSvg } = await import("../core/tikz.ts");

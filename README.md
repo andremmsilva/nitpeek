@@ -27,9 +27,16 @@ review panel, notes format and settings.
 - **Diff / File / Rendered / Source**: file changes open as a diff with syntax
   highlighting and word-level changes. Markdown and LaTeX (`.tex`) can be read
   rendered or as source (`s`). Code blocks are numbered; `w` wraps long lines.
+- **Long documents**: switching between Diff, Rendered and Source keeps your
+  place (the focused note, if it is on screen, stays where it was). Rendered
+  Markdown and LaTeX get a **Contents** column when there is room, with the
+  current section, a dot per note and a green bar where the agent changed
+  something. A green bar beside the text marks the changed blocks, and a strip
+  at the right edge shows the whole document (headings, changes, notes);
+  click it to jump.
 - **Math**: `$…$`, `$$…$$`, `\(…\)` and `\[…\]` render with KaTeX in replies and
   Markdown. A `.tex` file gets a light reading view (sections, lists, numbered
-  equations, theorems, tables, `\ref`/`\cite`, preamble macros); anything it
+  equations, theorems, tables, `algorithmic` pseudocode, `\ref`/`\cite`, preamble macros); anything it
   does not know stays visible as dimmed source. A formula is one unit: click it
   to select it, and notes always quote its LaTeX source.
 - **TikZ**: `tikzpicture` (and `tikzcd`, `circuitikz`) in `.tex` files, and
@@ -64,7 +71,8 @@ to any quote, such as “run the tests afterwards”.
 
 Notes sit in the margin next to their highlight. They follow their quote when
 the file changes: a note made in the Diff also shows in the File view, and the
-other way round.
+other way round. When notes are scrolled out of view, the margin shows
+`↑ 2 more notes` / `↓ 1 more note`; click to jump to the nearest one.
 
 **Done** previews the notes and puts them in the agent's prompt. The agent reads:
 
