@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { buildDiff, diffStat, highlightLines, languageOf, normalizeMarkdown, renderMarkdown } from "../core/render.ts";
+import { isTexPath, renderTex } from "../core/tex.ts";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = "") {
@@ -217,6 +219,56 @@ const matrix = [
   check("created file diff", buildDiff("", "x\ny\n", null).added === 2);
   const stat = diffStat(null, "a\nb\n");
   check("diffStat of a new file", stat.added === 2 && stat.removed === 0);
+}
+
+// ── Math, numbered code blocks ────────────────────────────────────────────
+const visibleText = (html: string) => html.replace(/<template>[\s\S]*?<\/template>/g, "").replace(/<[^>]+>/g, "")
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+{
+  const md = "Cost $O(n^2)$ and \\(x\\), not $5 or $10.\n\n$$\n\\sum_i x_i\n$$\n\nAfter.\n";
+  const html = renderMarkdown(md);
+  const math = [...html.matchAll(/<span class="np-math( display)?"><template>([\s\S]*?)<\/template>([^<]*)<\/span>/g)];
+  check("inline math keeps its source as text", math[0]?.[3] === "$O(n^2)$" && math[1]?.[3] === "\\(x\\)");
+  check("KaTeX rendering travels in a template", math[0]?.[2].includes('class="katex"'));
+  check("prices are not math", visibleText(html).includes("not $5 or $10."));
+  const block = blocks(html).find(b => html.includes("np-math-block"));
+  const display = /<div class="md-block np-math-block" data-offset-start="(\d+)" data-offset-end="(\d+)">/.exec(html);
+  check("display math is its own mapped block", !!display && md.slice(Number(display[1]), Number(display[2])).startsWith("$$\n\\sum_i"), String(block));
+  check("paragraph text equals the source around math", visibleText(html).includes("Cost $O(n^2)$ and \\(x\\)"));
+  check("bad TeX renders as an error, not an exception", renderMarkdown("$\\frac{a$ ok").includes("katex-error"));
+
+  const code = renderMarkdown(`${F}python\nx = 1\n\nprint(x)\n${F}\n`);
+  check("code block rows are numbered by attribute", (code.match(/class="cl" data-n="\d"/g) ?? []).length === 3);
+  check("code block text is exactly the code", codeText(code) === "x = 1\n\nprint(x)");
+  check("code block language label is an attribute", code.includes('data-lang="python"') && !/>python</.test(code));
+}
+
+// ── LaTeX documents ───────────────────────────────────────────────────────
+{
+  const tex = readFileSync(new URL("./fixtures/paper.tex", import.meta.url), "utf8");
+  const html = renderTex(tex);
+  const text = visibleText(html);
+  check(".tex paths", isTexPath("a/main.tex") && !isTexPath("a/x.sty") && !isTexPath("notes.md"));
+  check("preamble is hidden, title shown", text.includes("Preamble (lines 1–7)") && text.includes("Least Squares, Lightly") && text.includes("André Silva") && !text.includes("usepackage"));
+  check("sections are numbered", /<h2[^>]*><span class="tex-num">1<\/span>Estimation<\/h2>/.test(html) && html.includes('<span class="tex-num">1.1</span>Code'));
+  check("comments vanish, formatting renders", !text.includes("a comment") && html.includes("<em>ordinary least squares</em>") && html.includes("<strong>A1–A3</strong>"));
+  check("references resolve, forward too", html.includes('title="eq:ols">(1)</span>') && html.includes('title="thm:gm">1</span>') && html.includes('title="tab:fit">1</span>') && html.includes('tex-ref unknown" title="missing"'));
+  check("citations", html.includes("[greene2012, hayashi]"));
+  const templates = [...html.matchAll(/<template>([\s\S]*?)<\/template>/g)].map(m => visibleText(m[1]));
+  check("equations are numbered in order, \\nonumber rows are not", templates.some(t => t.includes("(1)")) && templates.some(t => t.includes("(2)")) && !templates.some(t => t.includes("(3)")));
+  check("a label in an align row names that row", html.includes('title="eq:unbiased">(2)</span>'));
+  check("unknown commands stay visible as source", html.includes('<span class="tex-raw">\\todo{prove consistency}</span>'));
+  check("escaped specials", text.includes("5% of $10"));
+  check("tables keep every cell", /<td>OLS<\/td><td>0\.91<\/td>/.test(html) && !text.includes("[2pt]"));
+  check("float caption numbered", html.includes('data-kind="Table 1:"'));
+  check("verbatim is a numbered code block", html.includes('<span class="cl" data-n="1">beta = np.linalg.solve'));
+  // Every mapped block covers source that contains its first word.
+  const mapped = [...html.matchAll(/data-offset-start="(\d+)" data-offset-end="(\d+)"/g)];
+  check("blocks map into the source", mapped.length > 10 && mapped.every(m => Number(m[1]) < Number(m[2]) && Number(m[2]) <= tex.length));
+  const math = [...html.matchAll(/<span class="np-math[^"]*"><template>[\s\S]*?<\/template>([^<]*)<\/span>/g)].map(m => m[1].replace(/&amp;/g, "&"));
+  check("every formula's text is found verbatim in the source", math.length >= 5 && math.every(m => tex.includes(m)));
+  check("macros from the preamble reach KaTeX", !html.includes("katex-error"));
+  check("broken input does not throw", typeof renderTex("\\begin{itemize}\\item {unclosed $x") === "string" && typeof renderTex("\\section{") === "string");
 }
 
 console.log(failures === 0 ? "\nRENDER SUITE PASSED" : `\n${failures} RENDER TEST(S) FAILED`);

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameS
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { buildDiff, diffStat, highlightLines, isMarkdownPath, languageOf, renderMarkdown, type Diff } from "./render.js";
+import { isTexPath, renderTex } from "./tex.js";
 import { BlobStore, hashText, normalize, readSnapshot, sameRef, type SnapRef, type Snapshot } from "./snapshot.js";
 import { formatFeedback, type FeedbackItem } from "./feedback.js";
 
@@ -420,7 +421,7 @@ export class ReviewStore {
       const request = this.state.requests.find(r => r.id === response.request);
       return {
         kind: "response" as const, path, label: "Response", text: response.markdown, ref: hashText(response.markdown),
-        html: renderMarkdown(response.markdown), markdown: true, lines: highlightLines(response.markdown, "markdown"), notes: this.state.drafts[path] ?? [],
+        html: renderMarkdown(response.markdown), rendered: true, lines: highlightLines(response.markdown, "markdown"), notes: this.state.drafts[path] ?? [],
         prompt: request?.prompt ?? "", request: response.request, latest: path === this.state.latestResponse, diff: null, diffNote: null, warning: null,
       };
     }
@@ -430,7 +431,7 @@ export class ReviewStore {
     const liveRef = this.blobs.put(live);
     const text = live.text ?? "";
     const language = languageOf(path);
-    const markdown = isMarkdownPath(path);
+    const render = isMarkdownPath(path) ? renderMarkdown : isTexPath(path) ? renderTex : null;
     const change = this.range(scope).get(path) ?? this.range("session").get(path);
     let diff: (Diff & { oldRef: string | null; newRef: string | null; oldText: string; newText: string }) | null = null;
     let diffNote: string | null = null;
@@ -447,7 +448,7 @@ export class ReviewStore {
       : file.external ? "Some changes to this file happened outside recorded edits." : null;
     return {
       kind: "file" as const, path, label: this.display(path), text, ref: liveRef.hash,
-      html: markdown ? renderMarkdown(text) : null, markdown, lines: highlightLines(text, language),
+      html: render ? render(text) : null, rendered: !!render, lines: highlightLines(text, language),
       notes: this.state.drafts[path] ?? [], diff, diffNote, warning, manual: !!file.manual,
       prompt: null, request: null, latest: null,
     };

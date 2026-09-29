@@ -2,6 +2,7 @@ import MarkdownIt, { type RendererRule, type Token } from "markdown-it";
 import hljs from "highlight.js/lib/common";
 import latex from "highlight.js/lib/languages/latex";
 import { diffWordsWithSpace, structuredPatch } from "diff";
+import { mathPlugin } from "./math.js";
 
 hljs.registerLanguage("latex", latex);
 
@@ -63,13 +64,15 @@ export function renderMarkdown(markdown: string): string {
   const mdit = new MarkdownIt({ html: false, linkify: false, breaks: false });
   const renderer = mdit.renderer;
 
-  const offsetAttrs = (token: Token): string => {
-    if (!token.map) return "";
-    const start = offsetOf(token.map[0]);
-    const end = offsetOf(token.map[1]);
+  const mapAttrs = (map: [number, number] | null | undefined): string => {
+    if (!map) return "";
+    const start = offsetOf(map[0]);
+    const end = offsetOf(map[1]);
     if (end <= start) return "";
     return ` class="md-block" data-offset-start="${start}" data-offset-end="${end}"`;
   };
+  const offsetAttrs = (token: Token) => mapAttrs(token.map as [number, number] | null);
+  mathPlugin(mdit, mapAttrs);
 
   // Attach offsets to every mapped block element rendered via renderToken.
   const renderToken = renderer.renderToken.bind(renderer);
@@ -92,17 +95,13 @@ export function renderMarkdown(markdown: string): string {
     const token = tokens[idx];
     const info = (token.info || "").trim().split(/\s+/)[0] || "";
     const code = token.content.replace(/\n$/, "");
-    const highlighted =
-      info && hljs.getLanguage(info)
-        ? hljs.highlight(code, { language: info, ignoreIllegals: true }).value
-        : escapeHtml(code);
-    return `<pre${offsetAttrs(token)}><code class="hljs${info ? ` language-${escapeHtml(info)}` : ""}">${highlighted}</code></pre>\n`;
+    return codeBlock(code, info && hljs.getLanguage(info) ? info : null, info, offsetAttrs(token));
   };
 
   // Indented code blocks have no language information.
   renderer.rules.code_block = function (tokens, idx) {
     const token = tokens[idx];
-    return `<pre${offsetAttrs(token)}><code class="hljs">${escapeHtml(token.content.replace(/\n$/, ""))}</code></pre>\n`;
+    return codeBlock(token.content.replace(/\n$/, ""), null, "", offsetAttrs(token));
   };
 
   // Keep links from navigating the annotation window away from the document.
@@ -121,6 +120,17 @@ export function renderMarkdown(markdown: string): string {
   };
 
   return mdit.render(markdown);
+}
+
+/**
+ * A numbered code block. Numbers and the wrap button are drawn by CSS and have
+ * no text, so the block's text content is exactly the code.
+ */
+export function codeBlock(code: string, language: string | null, label: string, attrs: string): string {
+  const lines = highlightLines(code, language);
+  const rows = lines.map((html, i) => `<span class="cl" data-n="${i + 1}">${html}${i < lines.length - 1 ? "\n" : ""}</span>`).join("");
+  return `<div class="np-codeblock"${label ? ` data-lang="${escapeHtml(label)}"` : ""}><button type="button" class="np-wrap" title="Wrap lines (w)" aria-label="Wrap lines"></button>`
+    + `<pre${attrs}><code class="hljs${language ? ` language-${escapeHtml(language)}` : ""}">${rows}</code></pre></div>\n`;
 }
 
 // ── Source code ────────────────────────────────────────────────────────

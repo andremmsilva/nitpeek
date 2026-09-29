@@ -89,6 +89,38 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     assert.equal(delivered.length, 1);
     assert.match(await page.$eval(".toasts", e => e.textContent!), /Delivered to the test/);
     assert.match(await page.$eval(".sidebar", e => e.textContent!), /Since last Done.*nothing/s);
+
+    // Math and numbered code blocks in a reply; `w` toggles wrapping.
+    await page.$$eval(".group-head", heads => (heads.find(h => /Whole session/.test(h.textContent!)) as HTMLElement).click());
+    await wait(400);
+    await page.click('.row[data-path="message:demo-math"]');
+    await page.waitForSelector(".prose .np-math");
+    await wait(300);
+    assert.equal(await page.$$eval(".prose .cl", rows => rows.length), 3, "code block rows");
+    assert.ok(await page.$eval(".prose .np-math", e => !!e.shadowRoot?.querySelector(".katex")), "formula rendered in its shadow root");
+    const wrapped = await page.$eval(".content", e => e.classList.contains("wrap"));
+    await page.keyboard.press("w");
+    await wait(200);
+    assert.equal(await page.$eval(".content", e => e.classList.contains("wrap")), !wrapped, "w toggles wrap");
+    await page.keyboard.press("w");
+
+    // A LaTeX file: clicking a formula selects it whole; the note quotes its source.
+    await page.click('.row[data-path$="main.tex"]');
+    await page.waitForSelector(".tabs");
+    await page.$$eval(".tabs button", buttons => (buttons.find(b => b.textContent === "Rendered") as HTMLElement).click());
+    await page.waitForSelector(".prose .np-math.display");
+    await wait(300);
+    assert.match(await page.$eval(".prose", e => e.textContent!), /Estimation/);
+    await page.click(".prose .np-math.display");
+    await page.waitForSelector(".toolbar");
+    await page.keyboard.press("3");
+    await page.waitForSelector(".composer textarea");
+    await page.keyboard.type("Why not QR?");
+    await saveNote();
+    assert.equal(await page.$$eval(".np-math.np-noted.i-question", m => m.length), 1, "the noted formula is highlighted");
+    await page.click(".done-button");
+    await page.waitForSelector(".preview");
+    assert.match(await page.$eval(".preview", e => e.textContent!), /\[1\] question · paper\/main\.tex:12-15\n> \\begin\{equation\}\n> {3}\\hat\\beta = \(X\^\\top X\)/);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

@@ -1,12 +1,12 @@
 import { render } from "preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { BOOT, get, notifyClosed, post } from "./api";
-import { DocView } from "./components/DocView";
+import { DocView, visibleMark } from "./components/DocView";
 import { DoneDialog, Palette, SettingsDialog, Shortcuts } from "./components/Overlays";
 import { Sidebar, relative } from "./components/Sidebar";
 import type { Doc, Note, Overview, Scope, Settings, View } from "./types";
 
-const DEFAULT_SETTINGS: Settings = { theme: "system", codeFontSize: 14, proseFont: "serif" };
+const DEFAULT_SETTINGS: Settings = { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true };
 
 function applySettings(settings: Settings) {
   const root = document.documentElement;
@@ -45,7 +45,6 @@ function App() {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [docError, setDocError] = useState("");
   const [view, setView] = useState<View>("document");
-  const [wrap, setWrap] = useState(true);
   const [notes, setNotesState] = useState<Note[]>([]);
   const [save, setSave] = useState<"saved" | "saving" | "error">("saved");
   const [active, setActive] = useState<string | null>(null);
@@ -172,6 +171,13 @@ function App() {
       setOverlay(null);
     } catch (error) { toast((error as Error).message); }
   }
+  function toggleWrap() {
+    setSettings(s => {
+      post("/api/settings", { wrap: !s.wrap }).catch(() => {});
+      return { ...s, wrap: !s.wrap };
+    });
+  }
+
   function selectGroup(scope: Scope) {
     setGroup(scope);
     if (current && overview) {
@@ -211,9 +217,10 @@ function App() {
         const index = active ? ids.indexOf(active) : -1;
         const id = ids[(index + (event.key === "n" ? 1 : -1) + ids.length) % ids.length];
         setActive(id);
-        document.querySelector(`mark[data-note="${id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+        visibleMark(document.querySelector<HTMLElement>(`mark[data-note="${id}"]`))?.scrollIntoView({ block: "center", behavior: "smooth" });
       } else if (event.key === "d" && doc?.diff) setView(v => v === "diff" ? "document" : "diff");
-      else if (event.key === "s" && doc?.markdown) setView(v => v === "source" ? "document" : "source");
+      else if (event.key === "s" && doc?.rendered) setView(v => v === "source" ? "document" : "source");
+      else if (event.key === "w") toggleWrap();
       else if (event.key === "[") setSidebar(s => !s);
       else if (event.key === "?") setOverlay("help");
     };
@@ -290,8 +297,8 @@ function App() {
                       Diff{doc.diff && <span class="stat"><span class="add">+{doc.diff.added}</span><span class="del">−{doc.diff.removed}</span></span>}
                     </button>
                   )}
-                  <button type="button" role="tab" aria-selected={view === "document"} class={view === "document" ? "on" : ""} onClick={() => setView("document")}>{doc.markdown ? "Rendered" : "File"}</button>
-                  {doc.markdown && <button type="button" role="tab" aria-selected={view === "source"} class={view === "source" ? "on" : ""} onClick={() => setView("source")} title="Markdown source (s)">Source</button>}
+                  <button type="button" role="tab" aria-selected={view === "document"} class={view === "document" ? "on" : ""} onClick={() => setView("document")}>{doc.rendered ? "Rendered" : "File"}</button>
+                  {doc.rendered && <button type="button" role="tab" aria-selected={view === "source"} class={view === "source" ? "on" : ""} onClick={() => setView("source")} title="Source (s)">Source</button>}
                 </div>
                 <div class="menu-wrap">
                   <button type="button" class="icon" aria-haspopup="menu" aria-expanded={menu} title="More" onClick={() => setMenu(!menu)}>⋯</button>
@@ -300,7 +307,7 @@ function App() {
                       {doc.kind === "file" && <button type="button" role="menuitem" onClick={() => navigator.clipboard.writeText(doc.path).then(() => toast("Path copied"))}>Copy path</button>}
                       {doc.kind === "file" && <button type="button" role="menuitem" onClick={() => openFolder(doc.path.slice(0, doc.path.lastIndexOf("/")) || "/")}>Show folder in Browse</button>}
                       {doc.kind === "response" && <button type="button" role="menuitem" onClick={() => navigator.clipboard.writeText(doc.text).then(() => toast("Reply copied as Markdown"))}>Copy reply as Markdown</button>}
-                      {(view !== "document" || !doc.markdown) && <button type="button" role="menuitem" onClick={() => setWrap(!wrap)}>{wrap ? "Don’t wrap lines" : "Wrap lines"}</button>}
+                      <button type="button" role="menuitem" onClick={toggleWrap}>{settings.wrap ? "Don’t wrap code lines" : "Wrap code lines"}<kbd>w</kbd></button>
                       {doc.kind === "file" && <button type="button" role="menuitem" onClick={() => current && open(current.path, current.scope, { keepView: true })}>Reload from disk</button>}
                     </div>
                   )}
@@ -315,7 +322,7 @@ function App() {
                 </div>
               )}
             </div>
-            <DocView key={doc.path + ":" + doc.ref} doc={doc} view={view} wrap={wrap} notes={notes} setNotes={setNotes} active={active} setActive={setActive}
+            <DocView key={doc.path + ":" + doc.ref} doc={doc} view={view} wrap={settings.wrap} onToggleWrap={toggleWrap} notes={notes} setNotes={setNotes} active={active} setActive={setActive}
               narrow={narrow} notesOpen={notesOpen} onBusy={setComposing} />
           </>
         )}

@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { clearMarks, markLines, markProse, resolveNote, selectLines, selectProse, wrapRange, type Anchor } from "../anchor";
 import { contextOf } from "../../core/quote";
+import { atomize, decorateMath, hydrateMath, selectMath, trackMathSelection } from "../math";
 import { INTENTS, type Doc, type Intent, type Note, type View } from "../types";
 
 type Props = {
   doc: Doc;
   view: View;
   wrap: boolean;
+  onToggleWrap: () => void;
   notes: Note[];
   setNotes: (notes: Note[]) => void;
   active: string | null;
@@ -22,6 +24,9 @@ type Draft = { anchor: Anchor; view: "document" | "diff"; intent: Intent; text: 
 /** A selection in a reply that asks or offers something is most likely answered, not changed. */
 const OFFER = /\?\s*["”»)]?\s*$|\b(queres|quer que|posso|podes|se quiseres|diz[- ]me|preferes|want me to|should i|shall i|do you want|would you like|let me know|if you want|prefer)\b/i;
 export const suggestIntent = (doc: Doc, quote: string): Intent => doc.kind === "response" && OFFER.test(quote.trim()) ? "reply" : "change";
+
+/** Where a note's highlight is drawn: a formula shows the marks inside it. */
+export const visibleMark = (mark: HTMLElement | null) => mark?.closest<HTMLElement>(".np-math") ?? mark;
 
 const newId = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const intentOf = (id: Intent) => INTENTS.find(i => i.id === id)!;
@@ -79,7 +84,7 @@ export function DocView(props: Props) {
   const [toolbar, setToolbar] = useState<{ anchor: Anchor; view: "document" | "diff" } | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [undo, setUndo] = useState<Note[] | null>(null);
-  const kind = view === "diff" ? "diff" : view === "source" || (doc.kind === "file" && !doc.markdown) ? "lines" : "prose";
+  const kind = view === "diff" ? "diff" : view === "source" || (doc.kind === "file" && !doc.rendered) ? "lines" : "prose";
 
   useEffect(() => { props.onBusy(!!draft); }, [draft]);
   // A new document remounts this component; switching views keeps it, so reset here.
@@ -99,6 +104,13 @@ export function DocView(props: Props) {
       for (const [s, e] of [...ranges].reverse()) wrapRange(src, s, e, "np-word");
       delete row.dataset.words;
     }
+  }, [doc, kind]);
+
+  // Formulas render once per document; the selection look follows them.
+  useLayoutEffect(() => {
+    if (!content.current || kind !== "prose") return;
+    hydrateMath(content.current);
+    return trackMathSelection(content.current);
   }, [doc, kind]);
 
   // Note highlights, then margin positions.
@@ -121,10 +133,11 @@ export function DocView(props: Props) {
         : markProse(root, range, note.quote, className, attrs);
       if (marks.length) firstMark[note.id] = marks[0]; else missing.push(note.id);
     }
+    if (kind === "prose") decorateMath(root);
     setUnanchored(missing);
     const base = root.getBoundingClientRect().top;
     const next: Record<string, number> = {};
-    for (const [id, mark] of Object.entries(firstMark)) next[id] = mark.getBoundingClientRect().top - base;
+    for (const [id, mark] of Object.entries(firstMark)) next[id] = visibleMark(mark)!.getBoundingClientRect().top - base;
     setTops(next);
   }, [doc, view, notes, active, kind, props.wrap]);
 
@@ -144,11 +157,14 @@ export function DocView(props: Props) {
   });
 
   function onMouseUp(event: MouseEvent) {
-    if ((event.target as Element).closest(".card, .composer, .toolbar")) return;
+    if ((event.target as Element).closest(".card, .composer, .toolbar, .np-wrap")) return;
+    const math = kind === "prose" ? (event.target as Element).closest<HTMLElement>(".np-math") : null;
     requestAnimationFrame(() => {
       const selection = getSelection();
+      // Clicking a formula selects it whole (a noted one focuses its note instead).
+      if (math && selection?.isCollapsed && !math.dataset.note) selectMath(math);
       if (!selection || selection.isCollapsed || !content.current) { setToolbar(null); return; }
-      const range = selection.getRangeAt(0);
+      const range = kind === "prose" ? atomize(selection.getRangeAt(0)) : selection.getRangeAt(0);
       if (!content.current.contains(range.commonAncestorContainer)) return;
       let anchor: Anchor | null = null;
       if (kind === "diff") anchor = selectLines(range, content.current, [{ attr: "new", text: doc.diff!.newText, side: "new" }, { attr: "old", text: doc.diff!.oldText, side: "old" }]);
@@ -208,14 +224,15 @@ export function DocView(props: Props) {
   }
 
   function edit(note: Note) {
-    const mark = content.current?.querySelector<HTMLElement>(`mark[data-note="${note.id}"]`);
+    const mark = visibleMark(content.current?.querySelector<HTMLElement>(`mark[data-note="${note.id}"]`) ?? null);
     const rect = mark?.getBoundingClientRect() ?? content.current!.getBoundingClientRect();
     setDraft({ anchor: { quote: note.quote, start: note.start, end: note.end, side: note.side, rect }, view: note.view, intent: note.intent, text: note.text, exact: note.replacement ?? null, editing: note.id });
   }
 
   // Clicking a highlight focuses its note, and vice versa.
   function onClick(event: MouseEvent) {
-    const mark = (event.target as Element).closest<HTMLElement>("mark.np-note");
+    if ((event.target as Element).closest(".np-wrap")) { props.onToggleWrap(); return; }
+    const mark = (event.target as Element).closest<HTMLElement>("mark.np-note, .np-math[data-note]");
     if (mark && getSelection()?.isCollapsed) setActive(mark.dataset.note!);
   }
 
@@ -243,7 +260,7 @@ export function DocView(props: Props) {
               <div key={note.id} data-id={note.id} class={`card i-${note.intent}` + (note.id === active ? " active" : "") + (unanchored.includes(note.id) ? " lost" : "")}
                 onMouseEnter={() => setActive(note.id)} onClick={() => {
                   setActive(note.id);
-                  content.current?.querySelector(`mark[data-note="${note.id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+                  visibleMark(content.current?.querySelector<HTMLElement>(`mark[data-note="${note.id}"]`) ?? null)?.scrollIntoView({ block: "center", behavior: "smooth" });
                 }}>
                 <div class="card-head">
                   <span class={`chip i-${note.intent}`}>{intentOf(note.intent).label}</span>

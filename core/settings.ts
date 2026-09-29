@@ -3,9 +3,9 @@ import { dirname } from "node:path";
 
 export type Theme = "system" | "dark" | "light" | "midnight";
 export type ProseFont = "serif" | "sans";
-export interface Settings { theme: Theme; codeFontSize: number; proseFont: ProseFont }
+export interface Settings { theme: Theme; codeFontSize: number; proseFont: ProseFont; wrap: boolean }
 
-export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({ theme: "system", codeFontSize: 14, proseFont: "serif" });
+export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({ theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true });
 
 const THEMES = new Set<Theme>(["system", "dark", "light", "midnight"]);
 /** pi-annotate's theme names. */
@@ -30,6 +30,7 @@ export class SettingsStore {
         theme: THEMES.has(theme) ? theme : DEFAULT_SETTINGS.theme,
         codeFontSize: validFontSize(value?.codeFontSize) ? value.codeFontSize : DEFAULT_SETTINGS.codeFontSize,
         proseFont: value?.proseFont === "sans" ? "sans" : "serif",
+        wrap: value?.wrap !== false,
       };
     } catch { return { ...DEFAULT_SETTINGS }; }
   }
@@ -49,6 +50,10 @@ export class SettingsStore {
     if (Object.hasOwn(patch, "proseFont")) {
       if (patch.proseFont !== "serif" && patch.proseFont !== "sans") throw new SettingsValidationError("Invalid prose font");
       next.proseFont = patch.proseFont;
+    }
+    if (Object.hasOwn(patch, "wrap")) {
+      if (typeof patch.wrap !== "boolean") throw new SettingsValidationError("Wrap must be true or false");
+      next.wrap = patch.wrap;
     }
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     writeFileSync(this.path + ".tmp", JSON.stringify({ schema: 1, settings: next }, null, 2) + "\n", { mode: 0o600 });

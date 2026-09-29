@@ -3,11 +3,11 @@
  * (Pi, Claude Code…) that receives the finished notes.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startServer, type ServerHandle } from "./server.js";
+import { startServer, type Asset, type ServerHandle } from "./server.js";
 import { SettingsStore } from "./settings.js";
 import { BlobStore } from "./snapshot.js";
 import type { ReviewStore, Scope } from "./store.js";
@@ -40,13 +40,13 @@ export interface Workspace {
 
 function assets() {
   const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
-  return {
-    html: read("ui/index.html"),
-    assets: {
-      "/app.js": { type: "text/javascript; charset=utf-8", body: read("dist/app.js") },
-      "/app.css": { type: "text/css; charset=utf-8", body: read("dist/app.css") },
-    },
+  const files: Record<string, Asset> = {
+    "/app.js": { type: "text/javascript; charset=utf-8", body: read("dist/app.js") },
+    "/app.css": { type: "text/css; charset=utf-8", body: read("dist/app.css") },
+    "/katex.css": { type: "text/css; charset=utf-8", body: read("dist/katex.css") },
   };
+  for (const font of readdirSync(join(ROOT, "dist/fonts"))) files["/fonts/" + font] = { type: "font/woff2", body: readFileSync(join(ROOT, "dist/fonts", font)) };
+  return { html: read("ui/index.html"), assets: files };
 }
 
 const scopeOf = (value: string | null): Scope => value === "since" || value === "session" || /^request:\d+$/.test(value ?? "") ? value as Scope : "session";

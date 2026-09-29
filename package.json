@@ -29,11 +29,12 @@
   "dependencies": {
     "diff": "^9.0.0",
     "highlight.js": "^11.12.0",
+    "katex": "^0.18.9",
     "markdown-it": "^15.0.2",
     "preact": "^10.29.8"
   },
   "scripts": {
-    "build": "bun build ui/app.tsx --outfile dist/app.js --minify --target browser && cp ui/styles.css dist/app.css",
+    "build": "bun build ui/app.tsx --outfile dist/app.js --minify --target browser && cp ui/styles.css dist/app.css && bun scripts/katex-assets.ts",
     "demo": "bun demo/serve.ts",
     "test": "./tests/run.sh"
   },

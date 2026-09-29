@@ -21,7 +21,13 @@ review panel, notes format and settings.
 - **Requests** is the timeline. Each of your prompts shows the replies and
   file changes it produced (`+12 −3`), with a diff of that request alone.
 - **Diff / File / Rendered / Source**: file changes open as a diff with syntax
-  highlighting and word-level changes. Markdown can be read rendered or as source.
+  highlighting and word-level changes. Markdown and LaTeX (`.tex`) can be read
+  rendered or as source (`s`). Code blocks are numbered; `w` wraps long lines.
+- **Math**: `$…$`, `$$…$$`, `\(…\)` and `\[…\]` render with KaTeX in replies and
+  Markdown. A `.tex` file gets a light reading view (sections, lists, numbered
+  equations, theorems, tables, `\ref`/`\cite`, preamble macros); anything it
+  does not know stays visible as dimmed source. A formula is one unit: click it
+  to select it, and notes always quote its LaTeX source.
 - **Opened for reading** and **Browse**: files you opened yourself, and the
   project plus any folder you open with ⌘P or `/annotate <dir>`. Nothing
   outside those is browsable.
@@ -133,7 +139,7 @@ Then add the hooks to `~/.claude/settings.json`:
   `/new`, `/resume` and fork.
 - Everything lives in `~/.nitpeek/` with private permissions: `pi/` and `claude/`
   session state, `blobs/` (content-addressed file versions, shared), and
-  `settings.json`. Theme and code size carry over from pi-annotate. Once a
+  `settings.json` (theme, fonts, wrap). Theme and code size carry over from pi-annotate. Once a
   day, sessions untouched for 30 days are removed, together with file versions
   no session references anymore.
 - The server binds to `127.0.0.1` on a random port. It requires a per-server token

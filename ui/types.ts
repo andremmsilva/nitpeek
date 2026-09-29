@@ -32,10 +32,11 @@ export type Diff = { hunks: { oldStart: number; newStart: number; lines: DiffLin
 
 export type Doc = {
   kind: "response" | "file"; path: string; label: string; text: string; ref: string | null;
-  html: string | null; markdown: boolean; lines: string[] | null; notes: Note[];
+  /** `rendered`: has a Rendered view (Markdown, LaTeX) besides the source. */
+  html: string | null; rendered: boolean; lines: string[] | null; notes: Note[];
   diff: Diff | null; diffNote: string | null; warning: string | null; manual?: boolean;
   prompt: string | null; request: number | null; latest: boolean | null;
 };
 
-export type Settings = { theme: "system" | "dark" | "light" | "midnight"; codeFontSize: number; proseFont: "serif" | "sans" };
+export type Settings = { theme: "system" | "dark" | "light" | "midnight"; codeFontSize: number; proseFont: "serif" | "sans"; wrap: boolean };
 export type View = "document" | "source" | "diff";

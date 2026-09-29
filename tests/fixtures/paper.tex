@@ -1,0 +1,63 @@
+\documentclass{article}
+\usepackage{amsmath}
+\newcommand{\R}{\mathbb{R}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\title{Least Squares, Lightly}
+\author{Andr\'e Silva}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We revisit \emph{ordinary least squares}.
+\end{abstract}
+
+\section{Estimation}
+\label{sec:est}
+We estimate $\beta \in \R^p$ by
+% a comment that should vanish
+\emph{ordinary least squares}:
+\begin{equation}
+  \hat\beta = \argmin_b \|y - Xb\|^2 = (X^\top X)^{-1} X^\top y
+  \label{eq:ols}
+\end{equation}
+Under \textbf{A1--A3}, \eqref{eq:ols} is unbiased~\cite{greene2012, hayashi}.
+See Section~\ref{sec:est} and Theorem~\ref{thm:gm}.
+
+\begin{align}
+  \mathbb{E}[\hat\beta] &= \beta \label{eq:unbiased} \\
+  \operatorname{Var}(\hat\beta) &= \sigma^2 (X^\top X)^{-1} \nonumber
+\end{align}
+
+\begin{theorem}[Gauss--Markov]\label{thm:gm}
+OLS is BLUE.
+\end{theorem}
+
+\begin{itemize}
+  \item Variance: $\sigma^2 (X^\top X)^{-1}$, costs 5\% of \$10.
+  \item \todo{prove consistency}
+  \item Nested:
+    \begin{enumerate}
+      \item one
+      \item two
+    \end{enumerate}
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Model & $R^2$ \\
+\midrule
+OLS & 0.91 \\[2pt]
+Ridge & 0.93 \\
+\bottomrule
+\end{tabular}
+\caption{Fit quality.}\label{tab:fit}
+\end{table}
+
+\subsection{Code}
+\begin{verbatim}
+beta = np.linalg.solve(X.T @ X, X.T @ y)
+\end{verbatim}
+Table~\ref{tab:fit}, \eqref{eq:unbiased} and \ref{missing}. Also \[ a^2 + b^2 = c^2 \] inline-display.
+\end{document}

@@ -19,6 +19,33 @@ export function createDemoStore() {
   write(join(source, "config.json"), '{\n  "run": "exp-01",\n  "threshold": 0.5\n}\n');
   store.response("demo-1", "I created the runner, its configuration and a README.\n\n- `src/runner.py` loads `src/config.json` and prints the results.\n- The README explains the layout.\n\nRun it with `python src/runner.py`.");
 
+  store.nextRequest("Write the estimator up in paper/main.tex, and explain the math to me.");
+  mkdirSync(join(workspace, "paper"), { recursive: true });
+  write(join(workspace, "paper", "main.tex"), String.raw`\documentclass{article}
+\usepackage{amsmath}
+\newcommand{\R}{\mathbb{R}}
+\title{Least Squares, Lightly}
+\author{Demo}
+\begin{document}
+\maketitle
+
+\section{Estimation}
+\label{sec:est}
+We estimate $\beta \in \R^p$ by \emph{ordinary least squares}:
+\begin{equation}
+  \hat\beta = (X^\top X)^{-1} X^\top y
+  \label{eq:ols}
+\end{equation}
+Under \textbf{A1--A3}, \eqref{eq:ols} is unbiased~\cite{greene2012}.
+
+\begin{itemize}
+  \item Variance: $\sigma^2 (X^\top X)^{-1}$
+  \item \todo{prove consistency}
+\end{itemize}
+\end{document}
+`);
+  store.response("demo-math", "The closed form is $\\hat\\beta = (X^\\top X)^{-1}X^\\top y$, at a cost of $O(np^2 + p^3)$. If $X$ is ill-conditioned the variance blows up:\n\n$$\n\\operatorname{Var}(\\hat\\beta) = \\sigma^2 \\sum_{j=1}^{p} \\frac{v_j v_j^\\top}{d_j^2}\n$$\n\nIn code:\n\n```python\ndef ols(X, y):\n    \"\"\"Closed-form least squares: fine for small p; use lstsq when X is ill-conditioned or p grows past a few thousand columns.\"\"\"\n    return np.linalg.solve(X.T @ X, X.T @ y)\n```\n\nShould I switch it to `lstsq`?");
+
   store.nextRequest("The threshold should be 0.75 and results must be written to runs/<name>/results.json. Also document the output.");
   write(join(source, "runner.py"), 'import json\nfrom pathlib import Path\n\n\ndef run(config):\n    threshold = config.get("threshold", 0.75)\n    results = {"accuracy": 0.91, "threshold": threshold}\n    return results\n\n\nif __name__ == "__main__":\n    config = json.loads(Path("src/config.json").read_text())\n    output = Path("runs") / config["run"] / "results.json"\n    output.parent.mkdir(parents=True, exist_ok=True)\n    output.write_text(json.dumps(run(config), indent=2))\n    print(f"wrote {output}")\n');
   write(join(source, "config.json"), '{\n  "run": "exp-01",\n  "threshold": 0.75\n}\n');
