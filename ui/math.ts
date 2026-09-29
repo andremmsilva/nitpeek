@@ -15,14 +15,14 @@ const SHADOW_STYLE = `<link rel="stylesheet" href="/katex.css"><style>
 </style>`;
 
 export function hydrateMath(root: HTMLElement) {
-  for (const host of Array.from(root.querySelectorAll<HTMLElement>(".np-math"))) {
+  for (const host of Array.from(root.querySelectorAll<HTMLElement>(".np-math:not(.np-tikz)"))) {
     if (host.shadowRoot) continue;
     const template = host.querySelector<HTMLTemplateElement>(":scope > template");
     if (!template) continue;
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML = SHADOW_STYLE;
     shadow.append(template.content.cloneNode(true));
-    host.title = host.textContent!.trim();
+    host.title = host.textContent!.trim().slice(0, 300);
   }
 }
 
@@ -76,4 +76,63 @@ export function trackMathSelection(root: HTMLElement) {
   };
   document.addEventListener("selectionchange", update);
   return () => document.removeEventListener("selectionchange", update);
+}
+
+// ── TikZ figures ───────────────────────────────────────────────────────
+
+export const TIKZ_STYLES = ["card", "adapted", "plain"] as const;
+const STYLE_LABEL: Record<string, string> = { card: "card", adapted: "adapted", plain: "as compiled" };
+
+const FIGURE_STYLE = `<style>
+  :host { user-select: none; -webkit-user-select: none; }
+  .frame { position: relative; display: flex; justify-content: center; min-height: 40px; }
+  .fig { max-width: 100%; overflow-x: auto; }
+  svg { max-width: 100%; height: auto; display: block; }
+  .status { font: 12px -apple-system, system-ui, sans-serif; opacity: .6; padding: 18px; }
+  .error { font: 12px ui-monospace, Menlo, monospace; color: #d9534f; white-space: pre-wrap; padding: 8px 12px; text-align: left; }
+  .style { position: absolute; top: -6px; right: -6px; opacity: 0; transition: opacity .15s; font: 11px -apple-system, system-ui, sans-serif;
+    border: 1px solid rgba(128,128,128,.45); background: rgba(128,128,128,.14); color: inherit; border-radius: 5px; padding: 1px 7px; cursor: pointer; }
+  .frame:hover .style { opacity: .9; }
+</style>`;
+
+/** SVG from the TeX compiler, without anything active in it. */
+function cleanSvg(markup: string): SVGSVGElement | null {
+  const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
+  if (svg.nodeName !== "svg") return null;
+  for (const bad of Array.from(svg.querySelectorAll("script, foreignObject, style"))) bad.remove();
+  for (const el of [svg, ...Array.from(svg.querySelectorAll("*"))]) {
+    for (const attr of Array.from(el.attributes)) if (/^on/i.test(attr.name) || /^\s*javascript:/i.test(attr.value)) el.removeAttribute(attr.name);
+  }
+  // TeX points are small on screen: show pictures a bit larger than 1pt = 1px.
+  const width = parseFloat(svg.getAttribute("width") ?? "");
+  if (width) { svg.style.width = `${Math.round(width * 1.3)}px`; svg.removeAttribute("height"); }
+  return document.importNode(svg, true) as unknown as SVGSVGElement;
+}
+
+/** Compile (or fetch from cache) and show each TikZ picture. */
+export function hydrateTikz(root: HTMLElement, load: (key: string) => Promise<{ svg?: string; error?: string }>) {
+  for (const host of Array.from(root.querySelectorAll<HTMLElement>(".np-tikz"))) {
+    if (host.shadowRoot) continue;
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `${FIGURE_STYLE}<div class="frame"><div class="fig"><div class="status">Compiling TikZ…</div></div><button type="button" class="style" title="Figure style: card · adapted to the theme · as compiled"></button></div>`;
+    const button = shadow.querySelector<HTMLButtonElement>(".style")!;
+    for (const type of ["mousedown", "mouseup"]) button.addEventListener(type, e => e.stopPropagation());
+    button.addEventListener("click", e => { e.stopPropagation(); dispatchEvent(new Event("nitpeek-figure-style")); });
+    button.textContent = STYLE_LABEL[document.documentElement.dataset.tikz ?? "card"];
+    const figure = shadow.querySelector<HTMLElement>(".fig")!;
+    load(host.dataset.tikz!).then(result => {
+      const svg = result.svg ? cleanSvg(result.svg) : null;
+      if (svg) figure.replaceChildren(svg);
+      else { const error = document.createElement("div"); error.className = "error"; error.textContent = `TikZ: ${result.error ?? "no output"}`; figure.replaceChildren(error); host.classList.add("failed"); }
+    }, error => { figure.innerHTML = ""; figure.textContent = String(error); });
+  }
+}
+
+/** Keep every figure's style button in sync with the setting. */
+export function labelFigures() {
+  const label = STYLE_LABEL[document.documentElement.dataset.tikz ?? "card"];
+  for (const host of Array.from(document.querySelectorAll<HTMLElement>(".np-tikz"))) {
+    const button = host.shadowRoot?.querySelector(".style");
+    if (button) button.textContent = label;
+  }
 }

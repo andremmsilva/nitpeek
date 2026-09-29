@@ -2,11 +2,12 @@ import { render } from "preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { BOOT, get, notifyClosed, post } from "./api";
 import { DocView, visibleMark } from "./components/DocView";
+import { labelFigures, TIKZ_STYLES } from "./math";
 import { DoneDialog, Palette, SettingsDialog, Shortcuts } from "./components/Overlays";
 import { Sidebar, relative } from "./components/Sidebar";
 import type { Doc, Note, Overview, Scope, Settings, View } from "./types";
 
-const DEFAULT_SETTINGS: Settings = { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true };
+const DEFAULT_SETTINGS: Settings = { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card" };
 
 function applySettings(settings: Settings) {
   const root = document.documentElement;
@@ -14,6 +15,8 @@ function applySettings(settings: Settings) {
   root.dataset.theme = theme;
   root.dataset.prose = settings.proseFont;
   root.style.setProperty("--code-size", settings.codeFontSize + "px");
+  root.dataset.tikz = settings.tikz ?? "card";
+  labelFigures();
 }
 
 function useNarrow() {
@@ -28,10 +31,11 @@ function useNarrow() {
   return narrow;
 }
 
-/** Items of the selected sidebar group, in display order (for j/k). */
+/** Items of a sidebar list, in display order (for j/k): a scope's changed files, or one turn. */
 function groupItems(overview: Overview, group: Scope): string[] {
-  const view = group === "since" ? overview.since : group === "session" ? overview.session : overview.requests.find(r => `request:${r.id}` === group);
-  return view ? [...[...view.responses].reverse().map(r => r.path), ...view.files.map(f => f.path)] : [];
+  if (group === "since" || group === "session") return (group === "since" ? overview.since : overview.session).files.map(f => f.path);
+  const turn = overview.requests.find(r => `request:${r.id}` === group);
+  return turn ? [...[...turn.responses].reverse().map(r => r.path), ...turn.files.map(f => f.path)] : [];
 }
 
 type Toast = { id: number; text: string; action?: { label: string; run: () => void } };
@@ -171,6 +175,17 @@ function App() {
       setOverlay(null);
     } catch (error) { toast((error as Error).message); }
   }
+  // The style button on a figure cycles card → adapted → as compiled.
+  useEffect(() => {
+    const cycle = () => setSettings(s => {
+      const tikz = TIKZ_STYLES[(TIKZ_STYLES.indexOf(s.tikz) + 1) % TIKZ_STYLES.length];
+      post("/api/settings", { tikz }).catch(() => {});
+      return { ...s, tikz };
+    });
+    addEventListener("nitpeek-figure-style", cycle);
+    return () => removeEventListener("nitpeek-figure-style", cycle);
+  }, []);
+
   function toggleWrap() {
     setSettings(s => {
       post("/api/settings", { wrap: !s.wrap }).catch(() => {});
@@ -205,11 +220,12 @@ function App() {
       if (event.key === "Escape") { setMenu(false); setActive(null); }
       if (!overview) return;
       if (event.key === "j" || event.key === "k") {
-        const items = groupItems(overview, group);
+        const list = current?.scope ?? group;
+        const items = groupItems(overview, list);
         if (!items.length) return;
         const index = current ? items.indexOf(current.path) : -1;
         const next = items[Math.max(0, Math.min(items.length - 1, index + (event.key === "j" ? 1 : -1)))];
-        if (next && next !== current?.path) open(next, group);
+        if (next && next !== current?.path) open(next, list);
       } else if (event.key === "n" || event.key === "N") {
         const marks = Array.from(document.querySelectorAll<HTMLElement>("mark.np-note[data-note]"));
         const ids = [...new Set(marks.map(m => m.dataset.note!))];
@@ -262,7 +278,7 @@ function App() {
         </button>
       </header>
 
-      {sidebar && <Sidebar overview={overview} group={group} current={current?.path ?? null} onGroup={selectGroup} onOpen={(path, scope) => { setGroup(scope); open(path, scope); }}
+      {sidebar && <Sidebar overview={overview} group={group} current={current?.path ?? null} onGroup={selectGroup} onOpen={(path, scope) => open(path, scope)}
         onOpenBrowsable={openBrowsable} onSearch={() => setOverlay("find")} expandFolder={expandFolder} />}
 
       <main class="main">

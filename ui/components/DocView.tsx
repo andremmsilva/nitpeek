@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { clearMarks, markLines, markProse, resolveNote, selectLines, selectProse, wrapRange, type Anchor } from "../anchor";
 import { contextOf } from "../../core/quote";
-import { atomize, decorateMath, hydrateMath, selectMath, trackMathSelection } from "../math";
+import { atomize, decorateMath, hydrateMath, hydrateTikz, selectMath, trackMathSelection } from "../math";
+import { get } from "../api";
 import { INTENTS, type Doc, type Intent, type Note, type View } from "../types";
 
 type Props = {
@@ -110,6 +111,7 @@ export function DocView(props: Props) {
   useLayoutEffect(() => {
     if (!content.current || kind !== "prose") return;
     hydrateMath(content.current);
+    hydrateTikz(content.current, key => get("/api/review/tikz", { key }));
     return trackMathSelection(content.current);
   }, [doc, kind]);
 
@@ -133,7 +135,7 @@ export function DocView(props: Props) {
         : markProse(root, range, note.quote, className, attrs);
       if (marks.length) firstMark[note.id] = marks[0]; else missing.push(note.id);
     }
-    if (kind === "prose") decorateMath(root);
+    if (kind === "prose") { decorateMath(root); hydrateTikz(root, key => get("/api/review/tikz", { key })); }
     setUnanchored(missing);
     const base = root.getBoundingClientRect().top;
     const next: Record<string, number> = {};

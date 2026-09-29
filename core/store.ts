@@ -403,13 +403,19 @@ export class ReviewStore {
 
   /** Everything the sidebar needs, cheap enough to poll. */
   overview() {
+    // The request that last changed each file: files are listed newest change first.
+    const lastRequest = new Map<string, number>();
+    for (const request of this.state.requests) for (const path of Object.keys(request.changes)) lastRequest.set(path, request.id);
+    const root = this.projectRoot() + "/";
     const scopeView = (scope: Scope) => ({
       responses: this.responsesIn(scope).map(r => this.responseItem(r)),
-      files: [...this.range(scope)].map(([path, change]) => this.fileItem(path, change)).sort((a, b) => a.label.localeCompare(b.label)),
+      files: [...this.range(scope)].map(([path, change]) => ({ ...this.fileItem(path, change), request: lastRequest.get(path) ?? 0, outside: !path.startsWith(root) }))
+        .sort((a, b) => Number(a.outside) - Number(b.outside) || b.request - a.request || a.label.localeCompare(b.label)),
     });
+    const sinceFrom = this.state.checkpoint?.request ?? 0;
     const requests = this.state.requests
       .filter(r => r.prompt || Object.keys(r.changes).length || this.responsesIn(`request:${r.id}`).length)
-      .map(r => ({ id: r.id, prompt: r.prompt, at: r.at, ...scopeView(`request:${r.id}`) }))
+      .map(r => ({ id: r.id, prompt: r.prompt, at: r.at, since: r.id >= sinceFrom, ...scopeView(`request:${r.id}`) }))
       .reverse();
     const notes = Object.values(this.state.drafts).reduce((sum, list) => sum + list.length, 0);
     return {

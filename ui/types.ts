@@ -13,10 +13,10 @@ export type Note = {
 };
 
 export type Activity = { state: "working" | "idle" | "blocked"; since: number };
-export type FileItem = { path: string; label: string; notes: number; added?: number; removed?: number; created?: boolean; deleted?: boolean; error?: string; external?: boolean };
+export type FileItem = { path: string; label: string; notes: number; added?: number; removed?: number; created?: boolean; deleted?: boolean; error?: string; external?: boolean; request?: number; outside?: boolean };
 export type ResponseItem = { path: string; request: number; at: number; preview: string; notes: number; latest: boolean };
 export type ScopeView = { responses: ResponseItem[]; files: FileItem[] };
-export type RequestItem = ScopeView & { id: number; prompt: string; at: number };
+export type RequestItem = ScopeView & { id: number; prompt: string; at: number; since: boolean };
 export type Scope = "since" | "session" | `request:${number}`;
 
 export type Overview = {
@@ -38,5 +38,5 @@ export type Doc = {
   prompt: string | null; request: number | null; latest: boolean | null;
 };
 
-export type Settings = { theme: "system" | "dark" | "light" | "midnight"; codeFontSize: number; proseFont: "serif" | "sans"; wrap: boolean };
+export type Settings = { theme: "system" | "dark" | "light" | "midnight"; codeFontSize: number; proseFont: "serif" | "sans"; wrap: boolean; tikz: "card" | "adapted" | "plain" };
 export type View = "document" | "source" | "diff";

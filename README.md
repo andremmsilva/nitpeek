@@ -15,6 +15,10 @@ review panel, notes format and settings.
 
 ## Reviewing
 
+- **Changed files** come first, newest change first, each tagged with the
+  turn (`#12`) that last changed it; files outside the project fold away.
+  **Conversation** lists your turns, newest open: your prompt, the reply, the
+  files it touched (with that turn's diff).
 - **Since last Done** is where you start: every reply and file change you
   haven't reviewed yet. After you press Done, it starts again from zero. Before
   the first Done it shows everything.
@@ -28,6 +32,14 @@ review panel, notes format and settings.
   equations, theorems, tables, `\ref`/`\cite`, preamble macros); anything it
   does not know stays visible as dimmed source. A formula is one unit: click it
   to select it, and notes always quote its LaTeX source.
+- **TikZ**: `tikzpicture` (and `tikzcd`, `circuitikz`) in `.tex` files, and
+  ```` ```tikz ```` blocks in Markdown, compile to SVG with a WebAssembly TeX
+  (node-tikzjax), no TeX install needed. The document's `\usetikzlibrary`,
+  `\tikzset`, colors and macros come along. First view takes a second or two per
+  figure, then it is cached. The figure's button (or Settings) switches between
+  a light card, colors adapted to the theme, and the SVG as compiled. Fonts are
+  Computer Modern, and only tikz, pgfplots, tikz-cd, circuitikz, chemfig and the
+  AMS packages are available; errors show the TeX message.
 - **Opened for reading** and **Browse**: files you opened yourself, and the
   project plus any folder you open with ⌘P or `/annotate <dir>`. Nothing
   outside those is browsable.

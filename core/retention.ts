@@ -43,5 +43,12 @@ export function sweep(home: string, now = Date.now(), force = false) {
       if (!referenced.has(hash) && now - statSync(blob).mtimeMs > BLOB_GRACE) { rmSync(blob, { force: true }); blobs++; }
     }
   }
+  // Compiled TikZ figures are touched on every use.
+  const figures = join(home, "tikz");
+  try {
+    for (const name of readdirSync(figures)) {
+      try { if (now - statSync(join(figures, name)).mtimeMs > SESSION_TTL) rmSync(join(figures, name), { force: true }); } catch {}
+    }
+  } catch {}
   return { sessions, blobs };
 }

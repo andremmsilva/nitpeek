@@ -11,6 +11,8 @@ import { startServer, type Asset, type ServerHandle } from "./server.js";
 import { SettingsStore } from "./settings.js";
 import { BlobStore } from "./snapshot.js";
 import type { ReviewStore, Scope } from "./store.js";
+import { tikzSvg } from "./tikz.js";
+import { createRequire } from "node:module";
 
 export const NITPEEK_HOME = process.env.NITPEEK_HOME || join(homedir(), ".nitpeek");
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,7 +48,17 @@ function assets() {
     "/katex.css": { type: "text/css; charset=utf-8", body: read("dist/katex.css") },
   };
   for (const font of readdirSync(join(ROOT, "dist/fonts"))) files["/fonts/" + font] = { type: "font/woff2", body: readFileSync(join(ROOT, "dist/fonts", font)) };
-  return { html: read("ui/index.html"), assets: files };
+  return { html: read("ui/index.html"), assets: files, resolve: tikzFonts };
+}
+
+/** TikZ's Computer Modern fonts, served from the node-tikzjax package. */
+function tikzFonts(pathname: string): Asset | undefined {
+  let css: string;
+  try { css = join(dirname(createRequire(import.meta.url).resolve("node-tikzjax/package.json")), "css"); } catch { return undefined; }
+  if (pathname === "/tikz/fonts.css") return { type: "text/css; charset=utf-8", body: readFileSync(join(css, "fonts.css"), "utf8") };
+  const font = /^\/tikz\/bakoma\/ttf\/([\w-]+\.ttf)$/.exec(pathname);
+  if (font) { try { return { type: "font/ttf", body: readFileSync(join(css, "bakoma", "ttf", font[1])) }; } catch {} }
+  return undefined;
 }
 
 const scopeOf = (value: string | null): Scope => value === "since" || value === "session" || /^request:\d+$/.test(value ?? "") ? value as Scope : "session";
@@ -54,9 +66,9 @@ const scopeOf = (value: string | null): Scope => value === "since" || value === 
 export async function startWorkspace(store: ReviewStore, host: Host, options: { demo?: boolean } = {}): Promise<Workspace> {
   let focus = 0, target: Target = {}, lastSeen = 0;
   let server: ServerHandle | undefined = undefined;
-  const { html, assets: files } = assets();
+  const { html, assets: files, resolve: resolveAsset } = assets();
   server = await startServer({
-    html, assets: files, settings: settingsStore(),
+    html, assets: files, resolveAsset, settings: settingsStore(),
     bootstrap: { host: host.name, demo: !!options.demo },
     workspace: async (route, method, url, body: any) => {
       const q = (name: string) => url.searchParams.get(name) ?? "";
@@ -66,6 +78,7 @@ export async function startWorkspace(store: ReviewStore, host: Host, options: { 
       }
       if (method === "GET" && route === "/api/review/document") return store.document(q("path"), scopeOf(q("scope")));
       if (method === "GET" && route === "/api/review/stat") return store.liveRef(q("path"));
+      if (method === "GET" && route === "/api/review/tikz") return tikzSvg(q("key"));
       if (method === "POST" && route === "/api/review/general") return store.setGeneral(body?.text);
       if (method === "POST" && route === "/api/review/notes") return store.saveNotes(body?.path, body?.notes);
       if (method === "GET" && route === "/api/review/browse") return store.browse(q("path"));

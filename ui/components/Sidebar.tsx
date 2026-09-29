@@ -23,15 +23,19 @@ export function relative(at: number) {
   return hours < 24 ? `${hours} h ago` : new Date(at).toLocaleDateString();
 }
 
-function FileRow({ file, selected, onClick }: { file: FileItem; selected: boolean; onClick: () => void }) {
+/** Long names that share a prefix differ at the end: cut in the middle. */
+const middle = (text: string, max: number) => text.length <= max ? text : text.slice(0, Math.ceil(max / 2) - 2) + "…" + text.slice(-(Math.floor(max / 2) + 1));
+
+function FileRow({ file, selected, onClick, turn }: { file: FileItem; selected: boolean; onClick: () => void; turn?: boolean }) {
   const slash = file.label.lastIndexOf("/");
   const directory = slash >= 0 ? file.label.slice(0, slash + 1) : "";
   const name = file.label.slice(slash + 1);
   return (
     <button type="button" class={"row file" + (selected ? " selected" : "")} onClick={onClick} title={file.path} data-path={file.path}>
-      <span class="name"><span class="dir">{directory}</span>{name}</span>
+      <span class="name file-name"><span class="base">{middle(name, 26)}</span>{directory && <span class="dir">{"\u200e" + directory.replace(/\/$/, "") + "\u200e"}</span>}</span>
       <span class="meta">
         {file.notes > 0 && <span class="count" title={`${file.notes} note${file.notes > 1 ? "s" : ""}`}>{file.notes}</span>}
+        {turn && file.request ? <span class="turn-tag" title={`Last changed in request #${file.request}`}>#{file.request}</span> : null}
         {file.error ? <span class="warn" title={file.error}>!</span>
           : file.created ? <span class="stat add">new</span>
           : file.deleted ? <span class="stat del">deleted</span>
@@ -50,33 +54,46 @@ function ResponseRow({ response, selected, onClick }: { response: ResponseItem; 
   );
 }
 
-function Items({ view, scope, current, onOpen, empty }: { view: ScopeView; scope: Scope; current: string | null; onOpen: Props["onOpen"]; empty: string }) {
-  if (!view.responses.length && !view.files.length) return <p class="empty">{empty}</p>;
+const count = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+
+/** Every file changed in the scope, newest change first; files outside the project fold away. */
+function ChangedFiles({ view, scope, props }: { view: ScopeView; scope: Scope; props: Props }) {
+  const [showOutside, setShowOutside] = useState(false);
+  const inside = view.files.filter(f => !f.outside), outside = view.files.filter(f => f.outside);
   return (
     <div class="items">
-      {[...view.responses].reverse().map(r => <ResponseRow key={r.path} response={r} selected={current === r.path} onClick={() => onOpen(r.path, scope)} />)}
-      {view.files.map(f => <FileRow key={f.path} file={f} selected={current === f.path} onClick={() => onOpen(f.path, scope)} />)}
+      {inside.map(f => <FileRow key={f.path} file={f} turn selected={props.current === f.path} onClick={() => props.onOpen(f.path, scope)} />)}
+      {outside.length > 0 && (
+        <>
+          <button type="button" class="twisty outside-toggle" onClick={() => setShowOutside(!showOutside)} aria-expanded={showOutside}>
+            <span class="chevron">{showOutside ? "▾" : "▸"}</span>Outside the project · {outside.length}
+          </button>
+          {showOutside && outside.map(f => <FileRow key={f.path} file={f} turn selected={props.current === f.path} onClick={() => props.onOpen(f.path, scope)} />)}
+        </>
+      )}
     </div>
   );
 }
 
-const summary = (view: ScopeView) => {
-  const parts = [];
-  if (view.responses.length) parts.push(`${view.responses.length} ${view.responses.length === 1 ? "reply" : "replies"}`);
-  if (view.files.length) parts.push(`${view.files.length} file${view.files.length === 1 ? "" : "s"}`);
-  return parts.join(" · ") || "nothing";
-};
-
-function RequestGroup({ request, open, working, props }: { request: RequestItem; open: boolean; working: boolean; props: Props }) {
+/** One turn: your prompt, then what the agent answered and changed. */
+function Turn({ request, open, working, onToggle, props }: { request: RequestItem; open: boolean; working: boolean; onToggle: () => void; props: Props }) {
   const scope = `request:${request.id}` as Scope;
+  const parts = [request.responses.length ? count(request.responses.length, "reply", "replies") : "", request.files.length ? count(request.files.length, "file") : ""].filter(Boolean);
+  const holdsCurrent = [...request.responses.map(r => r.path), ...request.files.map(f => f.path)].includes(props.current ?? "");
   return (
-    <div class={"group request" + (open ? " open" : "")}>
-      <button type="button" class="group-head" onClick={() => props.onGroup(scope)} aria-expanded={open}>
+    <div class={"group request" + (open ? " open" : "") + (holdsCurrent && !open ? " holds" : "")}>
+      <button type="button" class="group-head" onClick={onToggle} aria-expanded={open}>
         <span class="req-id">#{request.id}</span>
         <span class="prompt">{request.prompt || <em>(no prompt text)</em>}</span>
-        <span class="when">{working ? <span class="pulse" title="Working" /> : time(request.at)}</span>
+        <span class="when">{working ? <span class="pulse" title="Working" /> : open ? time(request.at) : parts.join(" · ") || time(request.at)}</span>
       </button>
-      {open && <Items view={request} scope={scope} current={props.current} onOpen={props.onOpen} empty="No reply or file changes." />}
+      {open && (
+        <div class="items">
+          {[...request.responses].reverse().map(r => <ResponseRow key={r.path} response={r} selected={props.current === r.path} onClick={() => props.onOpen(r.path, scope)} />)}
+          {request.files.map(f => <FileRow key={f.path} file={f} selected={props.current === f.path} onClick={() => props.onOpen(f.path, scope)} />)}
+          {!request.responses.length && !request.files.length && <p class="empty">{working ? "Working…" : "No reply or file changes."}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -156,33 +173,35 @@ function Browse({ props }: { props: Props }) {
 
 export function Sidebar(props: Props) {
   const { overview, group } = props;
-  const since = overview.checkpoint ? "Since last Done" : "Everything so far";
+  const scope: Scope = group === "session" && overview.checkpoint ? "session" : "since";
+  const view = scope === "session" ? overview.session : overview.since;
   const working = overview.activity.state !== "idle";
+  const turns = overview.requests.filter(r => scope === "session" || r.since);
+  // The newest turn starts open; the others open on click.
+  const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const isOpen = (request: RequestItem, index: number) => toggled[request.id] ?? index === 0;
   return (
     <nav class="sidebar" aria-label="Review">
       <button type="button" class="search" onClick={props.onSearch}>
         <span>Find a file or paste a path…</span><kbd>⌘P</kbd>
       </button>
-      <section class="section">
-        <div class={"group" + (group === "since" ? " open" : "")}>
-          <button type="button" class="group-head scope" onClick={() => props.onGroup("since")} aria-expanded={group === "since"}>
-            <span class="title">{since}</span><span class="when">{summary(overview.since)}</span>
-          </button>
-          {group === "since" && <Items view={overview.since} scope="since" current={props.current} onOpen={props.onOpen} empty={overview.checkpoint ? `Nothing new since Done (${relative(overview.checkpoint.at)}).` : "No replies or file changes yet."} />}
+      {overview.checkpoint && (
+        <div class="scope-switch" role="tablist">
+          <button type="button" role="tab" aria-selected={scope === "since"} class={scope === "since" ? "on" : ""} onClick={() => props.onGroup("since")} title={`Since your last Done (${relative(overview.checkpoint.at)})`}>Since last Done</button>
+          <button type="button" role="tab" aria-selected={scope === "session"} class={scope === "session" ? "on" : ""} onClick={() => props.onGroup("session")}>Whole session</button>
         </div>
-        {overview.checkpoint && <div class={"group" + (group === "session" ? " open" : "")}>
-          <button type="button" class="group-head scope" onClick={() => props.onGroup("session")} aria-expanded={group === "session"}>
-            <span class="title">Whole session</span><span class="when">{summary(overview.session)}</span>
-          </button>
-          {group === "session" && <Items view={overview.session} scope="session" current={props.current} onOpen={props.onOpen} empty="No replies or file changes yet." />}
-        </div>}
-      </section>
-      {overview.requests.length > 0 && (
-        <section class="section">
-          <div class="section-head"><span>Requests</span></div>
-          {overview.requests.map((request, index) => <RequestGroup key={request.id} request={request} open={group === `request:${request.id}`} working={index === 0 && working} props={props} />)}
-        </section>
       )}
+      <section class="section">
+        <div class="section-head"><span>Changed files</span><span class="when">{view.files.length || ""}</span></div>
+        {view.files.length ? <ChangedFiles view={view} scope={scope} props={props} />
+          : <p class="empty pad-side">{overview.checkpoint && scope === "since" ? `No file changes since Done (${relative(overview.checkpoint.at)}).` : "No file changes yet."}</p>}
+      </section>
+      <section class="section">
+        <div class="section-head"><span>Conversation</span><span class="when">{turns.length ? count(turns.length, "turn") : ""}</span></div>
+        {turns.map((request, index) => <Turn key={request.id} request={request} open={isOpen(request, index)} working={index === 0 && working && request.id === overview.requests[0]?.id}
+          onToggle={() => setToggled(t => ({ ...t, [request.id]: !isOpen(request, index) }))} props={props} />)}
+        {!turns.length && <p class="empty pad-side">{scope === "since" && overview.checkpoint ? "Nothing new since Done." : "No requests yet."}</p>}
+      </section>
       {overview.opened.length > 0 && (
         <section class="section">
           <div class="section-head"><span>Opened for reading</span></div>

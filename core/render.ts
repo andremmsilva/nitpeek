@@ -3,6 +3,7 @@ import hljs from "highlight.js/lib/common";
 import latex from "highlight.js/lib/languages/latex";
 import { diffWordsWithSpace, structuredPatch } from "diff";
 import { mathPlugin } from "./math.js";
+import { tikzFence } from "./tikz.js";
 
 hljs.registerLanguage("latex", latex);
 
@@ -95,6 +96,10 @@ export function renderMarkdown(markdown: string): string {
     const token = tokens[idx];
     const info = (token.info || "").trim().split(/\s+/)[0] || "";
     const code = token.content.replace(/\n$/, "");
+    if (info === "tikz") {
+      const attrs = offsetAttrs(token);
+      return `<div${attrs ? attrs.replace('class="md-block"', 'class="md-block np-tikz-block"') : ' class="np-tikz-block"'}>${tikzFence(code)}</div>\n`;
+    }
     return codeBlock(code, info && hljs.getLanguage(info) ? info : null, info, offsetAttrs(token));
   };
 

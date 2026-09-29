@@ -88,11 +88,14 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     await wait(800);
     assert.equal(delivered.length, 1);
     assert.match(await page.$eval(".toasts", e => e.textContent!), /Delivered to the test/);
-    assert.match(await page.$eval(".sidebar", e => e.textContent!), /Since last Done.*nothing/s);
+    assert.match(await page.$eval(".sidebar", e => e.textContent!), /No file changes since Done/);
 
     // Math and numbered code blocks in a reply; `w` toggles wrapping.
-    await page.$$eval(".group-head", heads => (heads.find(h => /Whole session/.test(h.textContent!)) as HTMLElement).click());
+    await page.$$eval(".scope-switch button", buttons => (buttons.find(b => /Whole session/.test(b.textContent!)) as HTMLElement).click());
     await wait(400);
+    // Older turns start folded; open turn #2 to reach its reply.
+    await page.$$eval(".group.request .group-head", heads => (heads.find(h => /^#2/.test(h.textContent!)) as HTMLElement).click());
+    await wait(200);
     await page.click('.row[data-path="message:demo-math"]');
     await page.waitForSelector(".prose .np-math");
     await wait(300);
@@ -111,6 +114,8 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     await page.waitForSelector(".prose .np-math.display");
     await wait(300);
     assert.match(await page.$eval(".prose", e => e.textContent!), /Estimation/);
+    // The TikZ figure compiles and shows as SVG.
+    await page.waitForFunction(() => !!document.querySelector(".np-tikz")?.shadowRoot?.querySelector("svg"), { timeout: 30000 });
     await page.click(".prose .np-math.display");
     await page.waitForSelector(".toolbar");
     await page.keyboard.press("3");
@@ -120,7 +125,7 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     assert.equal(await page.$$eval(".np-math.np-noted.i-question", m => m.length), 1, "the noted formula is highlighted");
     await page.click(".done-button");
     await page.waitForSelector(".preview");
-    assert.match(await page.$eval(".preview", e => e.textContent!), /\[1\] question · paper\/main\.tex:12-15\n> \\begin\{equation\}\n> {3}\\hat\\beta = \(X\^\\top X\)/);
+    assert.match(await page.$eval(".preview", e => e.textContent!), /\[1\] question · paper\/main\.tex:14-17\n> \\begin\{equation\}\n> {3}\\hat\\beta = \(X\^\\top X\)/);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

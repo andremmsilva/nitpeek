@@ -3,9 +3,12 @@ import { dirname } from "node:path";
 
 export type Theme = "system" | "dark" | "light" | "midnight";
 export type ProseFont = "serif" | "sans";
-export interface Settings { theme: Theme; codeFontSize: number; proseFont: ProseFont; wrap: boolean }
+/** How TikZ figures sit on the page: a light card, colors adapted to dark themes, or the SVG as compiled. */
+export type TikzStyle = "card" | "adapted" | "plain";
+export const TIKZ_STYLES: TikzStyle[] = ["card", "adapted", "plain"];
+export interface Settings { theme: Theme; codeFontSize: number; proseFont: ProseFont; wrap: boolean; tikz: TikzStyle }
 
-export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({ theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true });
+export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({ theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card" });
 
 const THEMES = new Set<Theme>(["system", "dark", "light", "midnight"]);
 /** pi-annotate's theme names. */
@@ -31,6 +34,7 @@ export class SettingsStore {
         codeFontSize: validFontSize(value?.codeFontSize) ? value.codeFontSize : DEFAULT_SETTINGS.codeFontSize,
         proseFont: value?.proseFont === "sans" ? "sans" : "serif",
         wrap: value?.wrap !== false,
+        tikz: TIKZ_STYLES.includes(value?.tikz) ? value.tikz : "card",
       };
     } catch { return { ...DEFAULT_SETTINGS }; }
   }
@@ -54,6 +58,10 @@ export class SettingsStore {
     if (Object.hasOwn(patch, "wrap")) {
       if (typeof patch.wrap !== "boolean") throw new SettingsValidationError("Wrap must be true or false");
       next.wrap = patch.wrap;
+    }
+    if (Object.hasOwn(patch, "tikz")) {
+      if (!TIKZ_STYLES.includes(patch.tikz as TikzStyle)) throw new SettingsValidationError("Invalid figure style");
+      next.tikz = patch.tikz as TikzStyle;
     }
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     writeFileSync(this.path + ".tmp", JSON.stringify({ schema: 1, settings: next }, null, 2) + "\n", { mode: 0o600 });

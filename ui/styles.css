@@ -96,6 +96,15 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .search { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--sunken); color: var(--faint); margin-bottom: 10px; }
 .search:hover { color: var(--muted); border-color: var(--faint); }
 .section { margin-bottom: 12px; }
+.section-head .when { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.scope-switch { display: flex; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.scope-switch button { flex: 1; background: none !important; border: 0 !important; border-radius: 0 !important; padding: 5px 8px !important; font-size: 12px; color: var(--muted); }
+.scope-switch button.on { background: var(--raised) !important; color: var(--text); }
+.turn-tag { font: 10.5px var(--mono); color: var(--faint); }
+.outside-toggle { display: block; width: 100%; font-size: 12px; padding: 6px 8px !important; color: var(--faint); }
+.empty.pad-side { padding: 0 8px; }
+.group.holds > .group-head { box-shadow: inset 2px 0 var(--line); }
+.group.request .items { padding-bottom: 4px; }
 .section-head { display: flex; width: 100%; justify-content: space-between; align-items: center; background: none; border: 0; padding: 8px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .section-head.toggle:hover { color: var(--muted); }
 .group { border-radius: var(--radius); }
@@ -116,6 +125,9 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .row.selected { background: var(--accent-soft); }
 .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .dir { color: var(--faint); }
+.row .file-name { display: flex; align-items: baseline; gap: 6px; }
+.row .file-name .base { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.row .file-name .dir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; direction: rtl; text-align: left; }
 .row .glyph { color: var(--accent); font-family: var(--serif); margin-right: 6px; }
 .row.response .name { color: var(--muted); }
 .row.response.selected .name { color: var(--text); }
@@ -197,6 +209,18 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .np-math-block { margin: 0 0 1em; }
 .np-math.np-noted { background: color-mix(in srgb, var(--intent) 20%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent) 20%, transparent); border-bottom: 2px solid var(--intent); }
 .np-math.np-noted.active { background: color-mix(in srgb, var(--intent) 36%, transparent); }
+
+/* TikZ figures: compiled SVG in a shadow root; the style is a setting. */
+.np-tikz-block { margin: 0 0 1.2em; }
+.np-math.np-tikz { display: block; width: fit-content; max-width: 100%; margin: .6em auto 1em; padding: 14px 18px; border-radius: var(--radius); overflow: visible; }
+.np-math.np-tikz:hover, .np-math.np-tikz.in-sel { background: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.np-math.np-tikz.in-sel { box-shadow: 0 0 0 2px color-mix(in srgb, var(--reply) 50%, transparent); }
+[data-tikz="card"] .np-math.np-tikz { background: #fbfaf6; color: #22201b; box-shadow: 0 0 0 1px var(--line-soft); }
+[data-tikz="card"] .np-math.np-tikz.in-sel { box-shadow: 0 0 0 3px color-mix(in srgb, var(--reply) 55%, transparent); }
+[data-tikz="adapted"]:not([data-theme="light"]) .np-math.np-tikz { filter: invert(.9) hue-rotate(180deg); }
+.np-math.np-tikz.np-noted { background: none; border-bottom: 0; box-shadow: 0 0 0 2px var(--intent); }
+[data-tikz="card"] .np-math.np-tikz.np-noted { background: #fbfaf6; box-shadow: 0 0 0 3px var(--intent); }
+.np-math.np-tikz.failed { background: none !important; filter: none !important; box-shadow: 0 0 0 1px var(--line) !important; }
 
 /* LaTeX documents */
 .tex-preamble { font: 12px var(--ui); color: var(--faint); user-select: none; margin: 0 0 1.5em !important; }

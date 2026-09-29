@@ -9,13 +9,13 @@ suite("settings: defaults, legacy import, validation, permissions", () => {
   try {
     const legacy = join(box.directory, "legacy.json");
     const store = new SettingsStore(join(box.directory, "settings.json"), legacy);
-    assert.deepEqual(store.read(), { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true });
+    assert.deepEqual(store.read(), { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card" });
     writeFileSync(legacy, JSON.stringify({ schema: 1, settings: { theme: "paper", codeFontSize: 16 } }));
-    assert.deepEqual(store.read(), { theme: "light", codeFontSize: 16, proseFont: "serif", wrap: true }, "pi-annotate settings carry over");
+    assert.deepEqual(store.read(), { theme: "light", codeFontSize: 16, proseFont: "serif", wrap: true, tikz: "card" }, "pi-annotate settings carry over");
     assert.throws(() => store.update({ theme: "neon" }), /Invalid theme/);
     assert.throws(() => store.update({ codeFontSize: 40 }), /10 to 22/);
     assert.throws(() => store.update([]), /JSON object/);
-    assert.deepEqual(store.update({ theme: "midnight", proseFont: "sans" }), { theme: "midnight", codeFontSize: 16, proseFont: "sans", wrap: true });
+    assert.deepEqual(store.update({ theme: "midnight", proseFont: "sans" }), { theme: "midnight", codeFontSize: 16, proseFont: "sans", wrap: true, tikz: "card" });
     assert.equal(store.update({ wrap: false }).wrap, false);
     assert.throws(() => store.update({ wrap: "no" }), /true or false/);
     assert.equal(statSync(store.path).mode & 0o777, 0o600);

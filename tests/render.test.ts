@@ -271,5 +271,22 @@ const visibleText = (html: string) => html.replace(/<template>[\s\S]*?<\/templat
   check("broken input does not throw", typeof renderTex("\\begin{itemize}\\item {unclosed $x") === "string" && typeof renderTex("\\section{") === "string");
 }
 
+// ── TikZ ───────────────────────────────────────────────────────────────────
+{
+  const { tikzSvg } = await import("../core/tikz.ts");
+  const tex = "\\documentclass{article}\n\\usepackage{tikz}\n\\usepackage{hyperref}\n\\usetikzlibrary{arrows.meta}\n\\providecommand\\BibTeX{BibTeX}\n\\definecolor{ink}{RGB}{10,20,30}\n\\begin{document}\nSee:\n\\resizebox{\\linewidth}{!}{\\begin{tikzpicture}\\draw[-Latex,ink] (0,0) -- (1,0);\\end{tikzpicture}}\n\\end{document}\n";
+  const html = renderTex(tex);
+  const host = /<span class="np-math display np-tikz" data-tikz="(\w+)">([^<]*)<\/span>/.exec(html);
+  check("a tikzpicture is an atomic figure whose text is its source", !!host && host[2].startsWith("\\begin{tikzpicture}") && tex.includes(host[2]));
+  check("\\resizebox passes its content through", !html.includes("tex-raw") && (html.match(/np-tikz"/g) ?? []).length === 1);
+  const result = await tikzSvg(host![1]);
+  check("the picture compiles with the document's libraries and colors", !!result.svg?.includes("<svg"), result.error ?? "");
+  const cached = Date.now(); await tikzSvg(host![1]);
+  check("compiled pictures are cached", Date.now() - cached < 50);
+  const broken = /data-tikz="(\w+)"/.exec(renderTex("\\begin{tikzpicture}\\node[nosuchkey] {x};\\end{tikzpicture}"))![1];
+  check("TeX errors are reported, not thrown", /nosuchkey/.test((await tikzSvg(broken)).error ?? ""));
+  check("markdown tikz fences become figures", renderMarkdown("```tikz\n\\draw (0,0) -- (1,1);\n```\n").includes("np-tikz"));
+}
+
 console.log(failures === 0 ? "\nRENDER SUITE PASSED" : `\n${failures} RENDER TEST(S) FAILED`);
 process.exit(failures ? 1 : 0);

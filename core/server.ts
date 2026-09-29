@@ -16,6 +16,8 @@ export interface ServerOptions {
   /** Page template; `__NITPEEK_DATA__` is replaced by the bootstrap JSON. */
   html: string;
   assets?: Record<string, Asset>;
+  /** Assets looked up on request (large sets read only when used). */
+  resolveAsset?: (pathname: string) => Asset | undefined;
   bootstrap?: Record<string, unknown>;
   settings?: SettingsStore;
   /** Authenticated /api/review/* requests. */
@@ -96,7 +98,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const data = inlineJson({ token, settings: options.settings?.read() ?? null, ...options.bootstrap });
         return send(res, 200, "text/html; charset=utf-8", options.html.replace("__NITPEEK_DATA__", () => data));
       }
-      const asset = method === "GET" ? options.assets?.[url.pathname] : undefined;
+      const asset = method === "GET" ? options.assets?.[url.pathname] ?? options.resolveAsset?.(url.pathname) : undefined;
       if (asset) return send(res, 200, asset.type, asset.body);
 
       if (url.pathname === "/api/settings" && options.settings) {

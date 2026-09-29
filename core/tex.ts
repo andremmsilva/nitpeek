@@ -10,6 +10,7 @@
 
 import { codeBlock } from "./render.js";
 import { mathHtml, stripLabels, type Macros } from "./math.js";
+import { tikzHtml } from "./tikz.js";
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -22,6 +23,9 @@ const THEOREMS = new Set(["theorem", "lemma", "proposition", "corollary", "defin
   "assumption", "hypothesis", "observation", "fact", "exercise", "problem", "note"]);
 const QUOTES = new Set(["quote", "quotation", "verse"]);
 const FLOATS: Record<string, string> = { figure: "Figure", "figure*": "Figure", table: "Table", "table*": "Table", algorithm: "Algorithm" };
+const TIKZ_ENVS: Record<string, string> = { tikzpicture: "", tikzcd: "tikz-cd", circuitikz: "circuitikz" };
+/** Packages node-tikzjax can load. */
+const TIKZ_PACKAGES = new Set(["tikz", "pgfplots", "tikz-cd", "circuitikz", "chemfig", "amsmath", "amssymb", "amsfonts", "amstext", "array", "tikz-3dplot", "xcolor"]);
 const TRANSPARENT = new Set(["center", "flushleft", "flushright", "minipage", "small", "footnotesize", "document", "frame", "subfigure", "adjustbox", "landscape"]);
 
 const FORMAT: Record<string, [string, string]> = {
@@ -46,7 +50,7 @@ const DROP: Record<string, number> = {
   maketitle: 0, tableofcontents: 0, listoffigures: 0, listoftables: 0, bibliographystyle: 1, frenchspacing: 0, sloppy: 0,
   appendix: 0, onecolumn: 0, twocolumn: 0, indent: 0, par: 0, footnotemark: 0, captionsetup: 1, setlength: 2, addtolength: 2,
   setcounter: 2, thispagestyle: 1, pagestyle: 1, graphicspath: 1, hline: 0, toprule: 0, midrule: 0, bottomrule: 0, cline: 1,
-  cmidrule: 1, nocite: 1, balance: 0, looseness: 0, ignorespaces: 0,
+  cmidrule: 1, nocite: 1, Description: 1, keywords: 1, acmConference: 0, ccsdesc: 1, balance: 0, looseness: 0, ignorespaces: 0,
 };
 const REFS = new Set(["ref", "eqref", "cref", "Cref", "autoref", "pageref", "vref", "nameref", "Autoref", "crefrange"]);
 const CITES = new Set(["cite", "citep", "citet", "citealp", "citealt", "citeauthor", "citeyear", "parencite", "textcite", "autocite",
@@ -62,6 +66,8 @@ class TexReader {
   private equation = 0;
   private lastTarget = "";
   private macros: Macros = {};
+  /** Preamble lines that pictures need: libraries, styles, colors, macros. */
+  private tikzPreamble = "";
   private meta: Record<string, string> = {};
 
   constructor(private src: string) {}
@@ -135,6 +141,7 @@ class TexReader {
     const src = this.src;
     this.readMacros(src);
     const begin = /\\begin\s*\{document\}/.exec(src);
+    this.tikzPreamble = this.pictureSetup(begin ? begin.index : src.length);
     let from = 0, to = src.length, head = "";
     if (begin) {
       from = begin.index + begin[0].length;
@@ -166,6 +173,49 @@ class TexReader {
       else if (match[3]) this.macros[match[3]] = body;
       else if (match[6]) this.macros[match[6]] = `\\operatorname${match[5] ? "*" : ""}{${body}}`;
     }
+  }
+
+  /** The preamble commands a standalone picture needs, in document order. */
+  private pictureSetup(end: number): string {
+    const src = this.src;
+    const pattern = /\\(usetikzlibrary|usepgfplotslibrary|tikzset|pgfplotsset|definecolor|colorlet|newcommand|renewcommand|providecommand|DeclareMathOperator|tikzstyle|usepackage|def)(?![A-Za-z])|(?<!\\)%[^\n]*/g;
+    const parts: string[] = [];
+    for (let match; (match = pattern.exec(src)) && match.index < end;) {
+      if (!match[1]) continue;
+      let at = match.index + match[0].length;
+      if (src[at] === "*") at++;
+      // `\def\x#1{…}` and `\newcommand\x{…}` name the macro without braces.
+      const bare = /^\s*\\[A-Za-z@]+(#\d)*/.exec(src.slice(at, at + 80));
+      if (bare && (match[1] === "def" || /command$|Operator$/.test(match[1]))) at += bare[0].length;
+      const argsFrom = at;
+      for (let n = 0; n < 4; n++) {
+        const spaced = this.skipSpace(at);
+        const open = src[spaced] === "=" && match[1] === "tikzstyle" ? src[this.skipSpace(spaced + 1)] : src[spaced];
+        if (open !== "{" && open !== "[") break;
+        const group = this.group(src[spaced] === "=" ? spaced + 1 : at, open);
+        if (!group) break;
+        at = group.next;
+      }
+      if (at === argsFrom && match[1] !== "def") continue; // incomplete
+      let text = src.slice(match.index, at);
+      if (match[1] === "usepackage") {
+        const names = /\{([^}]*)\}\s*$/.exec(text)?.[1].split(",").map(n => n.trim()).filter(n => TIKZ_PACKAGES.has(n)) ?? [];
+        if (!names.length) continue;
+        text = text.replace(/\{[^}]*\}\s*$/, `{${names.join(",")}}`);
+      }
+      // A picture's document starts without the article's definitions.
+      if (match[1] === "newcommand" || match[1] === "renewcommand") text = text.replace(/^\\(re)?newcommand/, "\\providecommand");
+      if (match[1] === "DeclareMathOperator" && !parts.some(p => p.includes("amsmath"))) parts.push("\\usepackage{amsmath}");
+      parts.push(text);
+      pattern.lastIndex = at;
+    }
+    return parts.join("\n");
+  }
+
+  /** A TikZ picture as an atomic, compiled figure. */
+  private picture(name: string, start: number, next: number): string {
+    const needs = TIKZ_ENVS[name] && !this.tikzPreamble.includes(TIKZ_ENVS[name]) ? `\\usepackage{${TIKZ_ENVS[name]}}\n` : "";
+    return tikzHtml(this.src.slice(start, next), needs + this.tikzPreamble);
   }
 
   // ── Blocks ──
@@ -208,11 +258,14 @@ class TexReader {
 
   /** A paragraph ends at a blank line, an environment (except inline `math`), a section or an item. */
   private paragraphEnd(from: number, to: number): number {
-    const pattern = /\n[ \t]*\n|\\begin\s*\{([^{}]+)\}|\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph|item|maketitle|bibliography|printbibliography)(?![A-Za-z])|\\.|(?<!\\)%[^\n]*/g;
+    const pattern = /\n[ \t]*\n|\\begin\s*\{([^{}]+)\}|\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph|item|maketitle|bibliography|printbibliography)(?![A-Za-z])|\\.|(?<!\\)%[^\n]*|[{}]/g;
     pattern.lastIndex = from;
-    let match: RegExpExecArray | null;
+    let match: RegExpExecArray | null, depth = 0;
     while ((match = pattern.exec(this.src)) && match.index < to) {
-      if (match.index === from || match[0].startsWith("%") || (match[0].length === 2 && match[0][0] === "\\")) continue;
+      if (match[0] === "{") { depth++; continue; }
+      if (match[0] === "}") { depth = Math.max(0, depth - 1); continue; }
+      // Inside a group (e.g. \resizebox{…}{…}{\begin{tikzpicture}…}) the paragraph goes on.
+      if (depth > 0 || match.index === from || match[0].startsWith("%") || (match[0].length === 2 && match[0][0] === "\\")) continue;
       if (match[1] === "math") continue;
       return match.index;
     }
@@ -259,6 +312,7 @@ class TexReader {
     const body = this.src.slice(bodyStart, bodyEnd);
     const attrs = this.attrs(start, next);
 
+    if (name in TIKZ_ENVS) return { html: `<div${this.attrs(start, next, "np-tikz-block")}>${this.picture(name, start, next)}</div>\n`, next };
     if (MATH_ENVS.has(name)) return { html: `<div${this.attrs(start, next, "np-math-block")}>${this.displayMath(name, this.src.slice(start, next), body)}</div>\n`, next };
     if (VERBATIM_ENVS.has(name)) {
       if (name === "comment") return { html: "", next };
@@ -546,8 +600,17 @@ class TexReader {
       const env = this.group(next);
       const envName = this.text(env).trim();
       const end = env ? this.envEnd(envName, env.next, to) : null;
+      if (env && end && envName in TIKZ_ENVS) return { html: this.picture(envName, at, end.next), next: end.next };
       if (env && end && MATH_ENVS.has(envName)) return { html: this.displayMath(envName, src.slice(at, end.next), src.slice(env.next, end.bodyEnd)), next: end.next };
       if (env && end) return raw(end.next);
+    }
+    // Scaling boxes: only their content matters here.
+    if (name === "resizebox" || name === "resizebox*" || name === "scalebox" || name === "adjustbox") {
+      let end = next;
+      for (let n = 0; n < (name.startsWith("resizebox") ? 2 : 1); n++) end = this.group(end)?.next ?? end;
+      if (src[this.skipSpace(end)] === "[") end = this.group(end, "[")?.next ?? end;
+      const content = this.group(end);
+      if (content) return { html: this.inline(content.start, content.end), next: content.next };
     }
     // Unknown: show the command and its arguments as source.
     let end = next;

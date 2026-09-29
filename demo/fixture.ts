@@ -23,6 +23,8 @@ export function createDemoStore() {
   mkdirSync(join(workspace, "paper"), { recursive: true });
   write(join(workspace, "paper", "main.tex"), String.raw`\documentclass{article}
 \usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 \newcommand{\R}{\mathbb{R}}
 \title{Least Squares, Lightly}
 \author{Demo}
@@ -42,6 +44,16 @@ Under \textbf{A1--A3}, \eqref{eq:ols} is unbiased~\cite{greene2012}.
   \item Variance: $\sigma^2 (X^\top X)^{-1}$
   \item \todo{prove consistency}
 \end{itemize}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[>=Latex, box/.style={draw, rounded corners, inner sep=6pt}]
+  \node[box] (x) {$X$};
+  \node[box, right=of x] (b) {$\hat\beta$};
+  \draw[->] (x) -- node[above] {OLS} (b);
+\end{tikzpicture}
+\caption{From data to estimate.}
+\end{figure}
 \end{document}
 `);
   store.response("demo-math", "The closed form is $\\hat\\beta = (X^\\top X)^{-1}X^\\top y$, at a cost of $O(np^2 + p^3)$. If $X$ is ill-conditioned the variance blows up:\n\n$$\n\\operatorname{Var}(\\hat\\beta) = \\sigma^2 \\sum_{j=1}^{p} \\frac{v_j v_j^\\top}{d_j^2}\n$$\n\nIn code:\n\n```python\ndef ols(X, y):\n    \"\"\"Closed-form least squares: fine for small p; use lstsq when X is ill-conditioned or p grows past a few thousand columns.\"\"\"\n    return np.linalg.solve(X.T @ X, X.T @ y)\n```\n\nShould I switch it to `lstsq`?");
