@@ -161,8 +161,9 @@ export function DocView(props: Props) {
     if (!content.current || kind !== "prose") return;
     hydrateMath(content.current);
     hydrateTikz(content.current, key => get("/api/review/tikz", { key }));
-    hydrateTables(content.current);
-    return trackMathSelection(content.current);
+    const stopTables = hydrateTables(content.current);
+    const stopSelection = trackMathSelection(content.current);
+    return () => { stopTables(); stopSelection(); };
   }, [doc, kind]);
 
   // Note highlights, then margin positions.

@@ -121,6 +121,10 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     const tables = () => page.$eval("html", e => e.dataset.tables);
     const toggleTables = () => page.$eval(".np-table-width", h => (h.shadowRoot!.querySelector("button") as HTMLElement).click());
     assert.equal(await tables(), "fit");
+    assert.ok(await page.$(".np-table.fits"), "a table whose lines fit hides its width button");
+    await page.$eval(".np-table", e => e.parentElement!.style.width = "80px"); // a narrow float: now the modes differ
+    await page.waitForSelector(".np-table:not(.fits)", { timeout: 3000 });
+    await page.$eval(".np-table", e => e.parentElement!.style.width = "");
     await toggleTables();
     await page.waitForFunction(() => document.documentElement.dataset.tables === "scroll");
     assert.equal(await page.$eval(".tex-table td", e => getComputedStyle(e).whiteSpace), "nowrap", "scroll keeps cell lines whole");
