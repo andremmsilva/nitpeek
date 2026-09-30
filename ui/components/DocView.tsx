@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import { clearMarks, markLines, markProse, resolveNote, selectLines, selectProse, wrapRange, type Anchor } from "../anchor";
 import { contextOf } from "../../core/quote";
 import { atomize, decorateMath, hydrateMath, hydrateTikz, selectMath, trackMathSelection } from "../math";
+import { hydrateTables } from "../tables";
 import { get } from "../api";
 import { capturePlace, changedLines, HEADINGS, measureMap, restorePlace, type DocMap, type Place } from "../place";
 import { Outline, Strip } from "./DocMap";
@@ -160,6 +161,7 @@ export function DocView(props: Props) {
     if (!content.current || kind !== "prose") return;
     hydrateMath(content.current);
     hydrateTikz(content.current, key => get("/api/review/tikz", { key }));
+    hydrateTables(content.current);
     return trackMathSelection(content.current);
   }, [doc, kind]);
 

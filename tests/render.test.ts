@@ -259,8 +259,13 @@ const visibleText = (html: string) => html.replace(/<template>[\s\S]*?<\/templat
   check("a label in an align row names that row", html.includes('title="eq:unbiased">(2)</span>'));
   check("unknown commands stay visible as source", html.includes('<span class="tex-raw">\\todo{prove consistency}</span>'));
   check("escaped specials", text.includes("5% of $10"));
-  check("tables keep every cell", /<td>OLS<\/td><td>0\.91<\/td>/.test(html) && !text.includes("[2pt]"));
-  check("\\multicolumn spans its columns", html.includes('<td colspan="2" style="text-align:center">Fit</td>') && !text.includes("multicolumn"));
+  check("tables keep every cell", /<td>OLS<\/td><td style="text-align:right">0\.91<\/td>/.test(html) && !text.includes("[2pt]"));
+  check("rows above the first \\midrule are the header", /<thead><tr[^>]*rule-top[^>]*><th colspan="2"[^>]*>Fit<\/th><\/tr><tr[^>]*><th>Model<\/th>/.test(html) && /<tbody><tr[^>]*rule-mid/.test(html));
+  check("\\cmidrule underlines the columns above it", html.includes('<th colspan="2" class="rule-under" style="text-align:center">Fit</th>'));
+  check("\\bottomrule closes the last row", /rule-bottom[^>]*><td>Ridge/.test(html));
+  check("\\multicolumn spans its columns", html.includes('style="text-align:center">Fit</th>') && !text.includes("multicolumn"));
+  const spec = renderTex(String.raw`\begin{tabular}{@{}>{\raggedright}p{0.4\columnwidth}*{2}{r}|c@{}} a & b & c & d \\ \end{tabular}`);
+  check("column specs: widths, repeats, alignment", spec.includes('class="tex-table full"') && spec.includes('<td class="wrap" style="--share:0.4">a</td><td style="text-align:right">b</td><td style="text-align:right">c</td><td style="text-align:center">d</td>'));
   check("float caption numbered", html.includes('data-kind="Table 1:"'));
   check("verbatim is a numbered code block", html.includes('<span class="cl" data-n="1">beta = np.linalg.solve'));
   // Every mapped block covers source that contains its first word.

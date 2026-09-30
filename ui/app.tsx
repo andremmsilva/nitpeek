@@ -3,11 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks"
 import { BOOT, get, notifyClosed, post } from "./api";
 import { DocView, visibleMark } from "./components/DocView";
 import { labelFigures, TIKZ_STYLES } from "./math";
+import { labelTables } from "./tables";
 import { DoneDialog, Palette, SettingsDialog, Shortcuts } from "./components/Overlays";
 import { Sidebar, relative } from "./components/Sidebar";
 import type { Doc, Note, Overview, Scope, Settings, View } from "./types";
 
-const DEFAULT_SETTINGS: Settings = { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card" };
+const DEFAULT_SETTINGS: Settings = { theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card", tables: "fit" };
 
 function applySettings(settings: Settings) {
   const root = document.documentElement;
@@ -16,7 +17,9 @@ function applySettings(settings: Settings) {
   root.dataset.prose = settings.proseFont;
   root.style.setProperty("--code-size", settings.codeFontSize + "px");
   root.dataset.tikz = settings.tikz ?? "card";
+  root.dataset.tables = settings.tables ?? "fit";
   labelFigures();
+  labelTables();
 }
 
 function useNarrow() {
@@ -184,6 +187,16 @@ function App() {
     });
     addEventListener("nitpeek-figure-style", cycle);
     return () => removeEventListener("nitpeek-figure-style", cycle);
+  }, []);
+  // The width button on a table switches fit ↔ scroll.
+  useEffect(() => {
+    const toggle = () => setSettings(s => {
+      const tables = s.tables === "scroll" ? "fit" : "scroll";
+      post("/api/settings", { tables }).catch(() => {});
+      return { ...s, tables };
+    });
+    addEventListener("nitpeek-table-width", toggle);
+    return () => removeEventListener("nitpeek-table-width", toggle);
   }, []);
 
   function toggleWrap() {

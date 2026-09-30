@@ -89,6 +89,26 @@ const ALGO_WORDS: Record<string, string> = {
 
 type Group = { start: number; end: number; next: number };
 
+type TableColumn = { align: "left" | "center" | "right"; wrap?: boolean; share?: number };
+type TableCell = { html: string; span: number; align?: TableColumn["align"] };
+type TableRow = { start: number; end: number; cells: TableCell[]; above?: "top" | "mid"; under: [number, number][] };
+const TABLE_RULES = /\\(?:hline|toprule|midrule|bottomrule|endhead|endfirsthead|endfoot)\b|\\c(?:line|midrule)(?:\([^)]*\))?\{[^}]*\}/g;
+const BALANCED = String.raw`(?:[^{}]|\{[^{}]*\})*`;
+
+/** Columns of a tabular spec: alignment, and for paragraph columns a width as a share of the line. */
+function tableColumns(spec: string): TableColumn[] {
+  const repeat = new RegExp(String.raw`\*\s*\{(\d+)\}\s*\{(${BALANCED})\}`);
+  for (let m; (m = repeat.exec(spec));) spec = spec.slice(0, m.index) + m[2].repeat(Number(m[1])) + spec.slice(m.index + m[0].length);
+  spec = spec.replace(new RegExp(String.raw`[@!<>]\s*\{${BALANCED}\}|\[[^\]]*\]`, "g"), "");
+  const columns: TableColumn[] = [];
+  for (const m of spec.matchAll(new RegExp(String.raw`([lcrSX])|([pmb])\s*\{(${BALANCED})\}`, "g"))) {
+    if (m[1]) { columns.push({ align: m[1] === "c" ? "center" : m[1] === "r" || m[1] === "S" ? "right" : "left", wrap: m[1] === "X" }); continue; }
+    const share = /^\s*([\d.]*)\s*\\(?:columnwidth|textwidth|linewidth|hsize)/.exec(m[3]);
+    columns.push({ align: "left", wrap: true, share: share ? Number(share[1] || 1) : undefined });
+  }
+  return columns;
+}
+
 class TexReader {
   private labels = new Map<string, string>();
   private counters: Record<string, number> = {};
@@ -470,19 +490,28 @@ class TexReader {
     let from = bodyStart;
     if (name.startsWith("tabularx")) from = this.group(from)?.next ?? from;
     from = this.group(from, "[")?.next ?? from;
-    from = this.group(from)?.next ?? from; // column spec
-    const rows = this.splitRows(this.src.slice(from, bodyEnd));
-    let offset = from, html = "";
-    for (let row of rows) {
+    const spec = this.group(from);
+    from = spec?.next ?? from;
+    const columns = tableColumns(this.text(spec));
+    const rows: TableRow[] = [];
+    let offset = from, pending: string[] = [];
+    for (let row of this.splitRows(this.src.slice(from, bodyEnd))) {
       let rowStart = offset;
       offset += row.length + 2;
       const spacing = /^\s*\[[^\]\n]*\]/.exec(row); // \\[2pt]
       if (spacing) { rowStart += spacing[0].length; row = row.slice(spacing[0].length); }
-      const rules = /\\(hline|toprule|midrule|bottomrule|endhead|endfirsthead|endfoot)\b|\\c(?:line|midrule)(?:\([^)]*\))?\{[^}]*\}/g;
-      if (!row.replace(rules, "").trim()) continue;
-      const leading = new RegExp(`^(?:\\s|${rules.source})*`).exec(row)![0]; // rules before the first cell
+      const leading = new RegExp(`^(?:\\s|${TABLE_RULES.source})*`).exec(row)![0]; // rules before the first cell
+      pending.push(...leading.match(TABLE_RULES) ?? []);
       rowStart += leading.length; row = row.slice(leading.length);
-      const cells: string[] = [];
+      if (!row.trim()) continue;
+      // A \cmidrule{a-b} is drawn under the row before it.
+      for (const rule of pending) {
+        const range = /^\\c(?:line|midrule)[^{]*\{(\d+)(?:-(\d+))?\}/.exec(rule);
+        if (range && rows.length) rows.at(-1)!.under.push([Number(range[1]), Number(range[2] ?? range[1])]);
+      }
+      const above = pending.some(r => r === "\\toprule") ? "top" : pending.some(r => /^\\(midrule|hline)$/.test(r)) ? "mid" : undefined;
+      pending = [];
+      const cells: TableCell[] = [];
       let cellStart = rowStart, depth = 0;
       for (let i = rowStart; i <= rowStart + row.length; i++) {
         const ch = i === rowStart + row.length ? "&" : this.src[i];
@@ -493,13 +522,33 @@ class TexReader {
           cellStart = i + 1;
         }
       }
-      html += `<tr${this.attrs(rowStart, rowStart + row.length)}>${cells.join("")}</tr>`;
+      rows.push({ start: rowStart, end: rowStart + row.length, cells, above, under: [] });
     }
-    return `<table class="tex-table"><tbody>${html}</tbody></table>\n`;
+    const below = pending.some(r => /^\\(bottomrule|hline)$/.test(r));
+    // Rows above the first \midrule are the header.
+    const head = rows.findIndex((row, i) => i > 0 && row.above === "mid");
+    const html = (row: TableRow, i: number, tag: string) => {
+      const cls = [row.above && "rule-" + row.above, below && i === rows.length - 1 && "rule-bottom"].filter(Boolean).join(" ");
+      let column = 1;
+      const cells = row.cells.map(cell => {
+        const first = column, kind = cell.span === 1 ? columns[first - 1] : undefined;
+        column += cell.span;
+        const align = cell.align ?? columns[first - 1]?.align;
+        const under = row.under.some(([a, b]) => first <= b && column - 1 >= a);
+        const classes = [kind?.wrap && "wrap", under && "rule-under"].filter(Boolean).join(" ");
+        const style = [align && align !== "left" && `text-align:${align}`, kind?.share && `--share:${kind.share}`].filter(Boolean).join(";");
+        return `<${tag}${cell.span > 1 ? ` colspan="${cell.span}"` : ""}${classes ? ` class="${classes}"` : ""}${style ? ` style="${style}"` : ""}>${cell.html}</${tag}>`;
+      });
+      return `<tr${this.attrs(row.start, row.end, cls)}>${cells.join("")}</tr>`;
+    };
+    const thead = head > 0 ? `<thead>${rows.slice(0, head).map((row, i) => html(row, i, "th")).join("")}</thead>` : "";
+    const tbody = rows.slice(Math.max(head, 0)).map((row, i) => html(row, i + Math.max(head, 0), "td")).join("");
+    const full = columns.some(c => c.share) ? " full" : "";
+    return `<table class="tex-table${full}">${thead}<tbody>${tbody}</tbody></table>\n`;
   }
 
   /** A cell, unwrapping `\multicolumn{n}{spec}{…}` into a spanning cell and `\multirow{n}{w}{…}` into its content. */
-  private tableCell(from: number, to: number): string {
+  private tableCell(from: number, to: number): TableCell {
     const at = this.skipSpace(from);
     const span = /^\\multi(column|row)\b/.exec(this.src.slice(at, to));
     if (span) {
@@ -508,15 +557,12 @@ class TexReader {
       const second = count && this.group(option?.next ?? count.next);
       const body = second && this.group(second.next);
       if (count && second && body && body.next <= to && !this.src.slice(body.next, to).trim()) {
-        const content = this.inline(body.start, body.end).replace(/^\s+|\s+$/g, "");
-        if (span[1] === "row") return `<td>${content}</td>`;
-        const n = Number(this.text(count).trim()) || 1;
-        const align = /[lrc]/.exec(this.text(second).replace(/[@!>]?\{[^{}]*\}/g, ""))?.[0];
-        const style = align ? ` style="text-align:${{ l: "left", r: "right", c: "center" }[align]}"` : "";
-        return `<td${n > 1 ? ` colspan="${n}"` : ""}${style}>${content}</td>`;
+        const html = this.inline(body.start, body.end).replace(/^\s+|\s+$/g, "");
+        if (span[1] === "row") return { html, span: 1 };
+        return { html, span: Number(this.text(count).trim()) || 1, align: tableColumns(this.text(second))[0]?.align ?? "left" };
       }
     }
-    return `<td>${this.inline(from, to).replace(/^\s+|\s+$/g, "")}</td>`;
+    return { html: this.inline(from, to).replace(/^\s+|\s+$/g, ""), span: 1 };
   }
 
   /** One row per statement, indented by block, numbered as `[n]` asks. */

@@ -54,6 +54,21 @@ Under \textbf{A1--A3}, \eqref{eq:ols} is unbiased~\cite{greene2012}.
 \end{tikzpicture}
 \caption{From data to estimate.}
 \end{figure}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+& \multicolumn{2}{c}{Error} \\
+\cmidrule(lr){2-3}
+Method & Train & Test \\
+\midrule
+OLS & 0.12 & 0.19 \\
+Ridge & 0.14 & 0.16 \\
+\bottomrule
+\end{tabular}
+\caption{Error on training and held-out data.}
+\end{table}
 \end{document}
 `);
   store.response("demo-math", "The closed form is $\\hat\\beta = (X^\\top X)^{-1}X^\\top y$, at a cost of $O(np^2 + p^3)$. If $X$ is ill-conditioned the variance blows up:\n\n$$\n\\operatorname{Var}(\\hat\\beta) = \\sigma^2 \\sum_{j=1}^{p} \\frac{v_j v_j^\\top}{d_j^2}\n$$\n\nIn code:\n\n```python\ndef ols(X, y):\n    \"\"\"Closed-form least squares: fine for small p; use lstsq when X is ill-conditioned or p grows past a few thousand columns.\"\"\"\n    return np.linalg.solve(X.T @ X, X.T @ y)\n```\n\nShould I switch it to `lstsq`?");

@@ -38,5 +38,5 @@ export type Doc = {
   prompt: string | null; request: number | null; latest: boolean | null;
 };
 
-export type Settings = { theme: "system" | "dark" | "light" | "midnight"; codeFontSize: number; proseFont: "serif" | "sans"; wrap: boolean; tikz: "card" | "adapted" | "plain" };
+export type Settings = { theme: "system" | "dark" | "light" | "midnight"; codeFontSize: number; proseFont: "serif" | "sans"; wrap: boolean; tikz: "card" | "adapted" | "plain"; tables: "fit" | "scroll" };
 export type View = "document" | "source" | "diff";

@@ -6,9 +6,11 @@ export type ProseFont = "serif" | "sans";
 /** How TikZ figures sit on the page: a light card, colors adapted to dark themes, or the SVG as compiled. */
 export type TikzStyle = "card" | "adapted" | "plain";
 export const TIKZ_STYLES: TikzStyle[] = ["card", "adapted", "plain"];
-export interface Settings { theme: Theme; codeFontSize: number; proseFont: ProseFont; wrap: boolean; tikz: TikzStyle }
+/** Whether tables fit the reading width, wrapping inside cells, or keep their lines and scroll sideways. */
+export type TableWidth = "fit" | "scroll";
+export interface Settings { theme: Theme; codeFontSize: number; proseFont: ProseFont; wrap: boolean; tikz: TikzStyle; tables: TableWidth }
 
-export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({ theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card" });
+export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({ theme: "system", codeFontSize: 14, proseFont: "serif", wrap: true, tikz: "card", tables: "fit" });
 
 const THEMES = new Set<Theme>(["system", "dark", "light", "midnight"]);
 /** pi-annotate's theme names. */
@@ -35,6 +37,7 @@ export class SettingsStore {
         proseFont: value?.proseFont === "sans" ? "sans" : "serif",
         wrap: value?.wrap !== false,
         tikz: TIKZ_STYLES.includes(value?.tikz) ? value.tikz : "card",
+        tables: value?.tables === "scroll" ? "scroll" : "fit",
       };
     } catch { return { ...DEFAULT_SETTINGS }; }
   }
@@ -62,6 +65,10 @@ export class SettingsStore {
     if (Object.hasOwn(patch, "tikz")) {
       if (!TIKZ_STYLES.includes(patch.tikz as TikzStyle)) throw new SettingsValidationError("Invalid figure style");
       next.tikz = patch.tikz as TikzStyle;
+    }
+    if (Object.hasOwn(patch, "tables")) {
+      if (patch.tables !== "fit" && patch.tables !== "scroll") throw new SettingsValidationError("Invalid table width");
+      next.tables = patch.tables;
     }
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     writeFileSync(this.path + ".tmp", JSON.stringify({ schema: 1, settings: next }, null, 2) + "\n", { mode: 0o600 });

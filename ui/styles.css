@@ -276,7 +276,8 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .tex-footnote::before { content: "["; } .tex-footnote::after { content: "]"; }
 .tex-sc { font-variant: small-caps; }
 .tex-float { margin: 0 0 1.4em; padding: 12px 16px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
-.tex-float table { margin: 0 auto .8em; }
+.tex-float .np-table { margin-bottom: .8em; }
+.tex-float .np-table-scroll > table { margin: 0 auto; }
 .tex-algo { margin: .2em 0 .8em; line-height: 1.6; }
 .tex-algo.numbered { padding-left: 2.2em; }
 .tex-algo-line { position: relative; padding: 1px 0; }
@@ -288,8 +289,24 @@ button.icon.small { font-size: 12px; padding: 2px 5px !important; }
 .tex-graphic { display: inline-block; font: 12px var(--mono); color: var(--faint); border: 1px dashed var(--line); border-radius: var(--radius); padding: 18px 24px; }
 .tex-graphic::before { content: "image · "; }
 .prose blockquote { margin-left: 0; padding: 2px 0 2px 16px; border-left: 3px solid var(--line); color: var(--muted); }
-.prose table { border-collapse: collapse; font: 14px var(--ui); display: block; overflow: auto; }
-.prose th, .prose td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+.prose table { border-collapse: collapse; font: 14px var(--ui); }
+.prose th, .prose td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; overflow-wrap: break-word; }
+.np-table { position: relative; margin: 0 0 1em; }
+.np-table > .np-table-scroll > table { margin: 0; }
+.np-table:hover .np-table-width::part(button) { opacity: .9; }
+.np-table-scroll { overflow-x: auto; }
+.prose table.full { width: 100%; }
+.prose :is(th, td).wrap { width: calc(var(--share) * 100%); }
+[data-tables="scroll"] .prose :is(th, td) { white-space: nowrap; }
+[data-tables="scroll"] .prose :is(th, td).wrap { white-space: normal; width: auto; min-width: calc(var(--share, .3) * 40em); }
+[data-tables="scroll"] .prose table.full { width: auto; min-width: 100%; }
+/* LaTeX tables in booktabs style: rules only where the source draws them. */
+.prose .tex-table :is(th, td) { border: 0; padding: 4px 8px; vertical-align: baseline; }
+.prose .tex-table th { font-weight: 600; vertical-align: bottom; }
+.tex-table tr.rule-top { border-top: 1.5px solid var(--muted); }
+.tex-table tr.rule-mid { border-top: 1px solid var(--line); }
+.tex-table tr.rule-bottom { border-bottom: 1.5px solid var(--muted); }
+.tex-table .rule-under { background: linear-gradient(var(--line), var(--line)) bottom / calc(100% - 12px) 1px no-repeat; }
 .prose hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
 .prose img { max-width: 100%; }
 

@@ -133,6 +133,11 @@ export function SettingsDialog({ settings, onChange, onClose }: { settings: Sett
             <option value="card">On a light card</option><option value="adapted">Adapted to the theme</option><option value="plain">As compiled</option>
           </select>
         </label>
+        <label>Tables
+          <select value={settings.tables} onChange={e => update({ tables: (e.target as HTMLSelectElement).value as Settings["tables"] })}>
+            <option value="fit">Fit to width</option><option value="scroll">Scroll sideways</option>
+          </select>
+        </label>
         <label>Code size <span class="value">{settings.codeFontSize}px</span>
           <input type="range" min={10} max={22} value={settings.codeFontSize} onInput={e => update({ codeFontSize: Number((e.target as HTMLInputElement).value) })} />
         </label>

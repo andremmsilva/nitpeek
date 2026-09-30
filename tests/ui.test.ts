@@ -116,6 +116,16 @@ suite("ui: select → note → margin, diff gutter note, Done", async () => {
     await page.waitForSelector(".prose .np-math.display");
     await wait(300);
     assert.match(await page.$eval(".prose", e => e.textContent!), /Estimation/);
+    // Tables sit in a scroll box; the width button switches every table between fit and scroll.
+    await page.waitForSelector(".np-table .tex-table thead th[colspan='2']");
+    const tables = () => page.$eval("html", e => e.dataset.tables);
+    const toggleTables = () => page.$eval(".np-table-width", h => (h.shadowRoot!.querySelector("button") as HTMLElement).click());
+    assert.equal(await tables(), "fit");
+    await toggleTables();
+    await page.waitForFunction(() => document.documentElement.dataset.tables === "scroll");
+    assert.equal(await page.$eval(".tex-table td", e => getComputedStyle(e).whiteSpace), "nowrap", "scroll keeps cell lines whole");
+    await toggleTables();
+    await page.waitForFunction(() => document.documentElement.dataset.tables === "fit");
     // The TikZ figure compiles and shows as SVG.
     await page.waitForFunction(() => !!document.querySelector(".np-tikz")?.shadowRoot?.querySelector("svg"), { timeout: 30000 });
     await page.click(".prose .np-math.display");
