@@ -260,6 +260,7 @@ const visibleText = (html: string) => html.replace(/<template>[\s\S]*?<\/templat
   check("unknown commands stay visible as source", html.includes('<span class="tex-raw">\\todo{prove consistency}</span>'));
   check("escaped specials", text.includes("5% of $10"));
   check("tables keep every cell", /<td>OLS<\/td><td>0\.91<\/td>/.test(html) && !text.includes("[2pt]"));
+  check("\\multicolumn spans its columns", html.includes('<td colspan="2" style="text-align:center">Fit</td>') && !text.includes("multicolumn"));
   check("float caption numbered", html.includes('data-kind="Table 1:"'));
   check("verbatim is a numbered code block", html.includes('<span class="cl" data-n="1">beta = np.linalg.solve'));
   // Every mapped block covers source that contains its first word.

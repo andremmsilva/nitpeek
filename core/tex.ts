@@ -478,8 +478,10 @@ class TexReader {
       offset += row.length + 2;
       const spacing = /^\s*\[[^\]\n]*\]/.exec(row); // \\[2pt]
       if (spacing) { rowStart += spacing[0].length; row = row.slice(spacing[0].length); }
-      const cleaned = row.replace(/\\(hline|toprule|midrule|bottomrule|endhead|endfirsthead|endfoot)\b|\\c(?:line|midrule)(?:\([^)]*\))?\{[^}]*\}/g, "");
-      if (!cleaned.trim()) continue;
+      const rules = /\\(hline|toprule|midrule|bottomrule|endhead|endfirsthead|endfoot)\b|\\c(?:line|midrule)(?:\([^)]*\))?\{[^}]*\}/g;
+      if (!row.replace(rules, "").trim()) continue;
+      const leading = new RegExp(`^(?:\\s|${rules.source})*`).exec(row)![0]; // rules before the first cell
+      rowStart += leading.length; row = row.slice(leading.length);
       const cells: string[] = [];
       let cellStart = rowStart, depth = 0;
       for (let i = rowStart; i <= rowStart + row.length; i++) {
@@ -487,13 +489,34 @@ class TexReader {
         if (ch === "\\") { i++; continue; }
         if (ch === "{") depth++; else if (ch === "}") depth--;
         if (ch === "&" && depth <= 0) {
-          cells.push(this.inline(cellStart, i).replace(/^\s+|\s+$/g, ""));
+          cells.push(this.tableCell(cellStart, i));
           cellStart = i + 1;
         }
       }
-      html += `<tr${this.attrs(rowStart, rowStart + row.length)}>${cells.map(c => `<td>${c}</td>`).join("")}</tr>`;
+      html += `<tr${this.attrs(rowStart, rowStart + row.length)}>${cells.join("")}</tr>`;
     }
     return `<table class="tex-table"><tbody>${html}</tbody></table>\n`;
+  }
+
+  /** A cell, unwrapping `\multicolumn{n}{spec}{…}` into a spanning cell and `\multirow{n}{w}{…}` into its content. */
+  private tableCell(from: number, to: number): string {
+    const at = this.skipSpace(from);
+    const span = /^\\multi(column|row)\b/.exec(this.src.slice(at, to));
+    if (span) {
+      const count = this.group(at + span[0].length);
+      const option = count && this.group(count.next, "["); // \multirow[t]{n}[…]{w}
+      const second = count && this.group(option?.next ?? count.next);
+      const body = second && this.group(second.next);
+      if (count && second && body && body.next <= to && !this.src.slice(body.next, to).trim()) {
+        const content = this.inline(body.start, body.end).replace(/^\s+|\s+$/g, "");
+        if (span[1] === "row") return `<td>${content}</td>`;
+        const n = Number(this.text(count).trim()) || 1;
+        const align = /[lrc]/.exec(this.text(second).replace(/[@!>]?\{[^{}]*\}/g, ""))?.[0];
+        const style = align ? ` style="text-align:${{ l: "left", r: "right", c: "center" }[align]}"` : "";
+        return `<td${n > 1 ? ` colspan="${n}"` : ""}${style}>${content}</td>`;
+      }
+    }
+    return `<td>${this.inline(from, to).replace(/^\s+|\s+$/g, "")}</td>`;
   }
 
   /** One row per statement, indented by block, numbered as `[n]` asks. */
