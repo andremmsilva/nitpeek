@@ -17,7 +17,9 @@ const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "
 const SECTIONS = ["part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph"];
 const MATH_ENVS = new Set(["equation", "equation*", "align", "align*", "gather", "gather*", "multline", "multline*", "flalign", "flalign*",
   "alignat", "alignat*", "eqnarray", "eqnarray*", "displaymath", "math"]);
-const VERBATIM_ENVS = new Set(["verbatim", "verbatim*", "Verbatim", "lstlisting", "minted", "comment"]);
+const VERBATIM_ENVS = new Set(["verbatim", "verbatim*", "Verbatim", "lstlisting", "minted", "comment", "CCSXML"]);
+/** Read verbatim and not shown: comments, and metadata such as ACM's classification XML. */
+const HIDDEN_ENVS = new Set(["comment", "CCSXML"]);
 const LIST_ENVS: Record<string, string> = { itemize: "ul", enumerate: "ol", description: "dl" };
 const THEOREMS = new Set(["theorem", "lemma", "proposition", "corollary", "definition", "remark", "example", "claim", "conjecture",
   "assumption", "hypothesis", "observation", "fact", "exercise", "problem", "note"]);
@@ -51,7 +53,14 @@ const DROP: Record<string, number> = {
   appendix: 0, onecolumn: 0, twocolumn: 0, indent: 0, par: 0, footnotemark: 0, captionsetup: 1, setlength: 2, addtolength: 2,
   setcounter: 2, thispagestyle: 1, pagestyle: 1, graphicspath: 1, hline: 0, toprule: 0, midrule: 0, bottomrule: 0, cline: 1,
   cmidrule: 1, nocite: 1, Description: 1, keywords: 1, acmConference: 0, ccsdesc: 1, balance: 0, looseness: 0, ignorespaces: 0,
+  xspace: 0, color: 1,
+  // Front matter, shown in the title block at \maketitle.
+  title: 1, author: 1, affiliation: 1, additionalaffiliation: 1, email: 1, orcid: 1, authornote: 1, authornotemark: 0, correspondingauthor: 0, date: 1,
+  thanks: 1, subtitle: 1, shortauthors: 0, received: 1, acmJournal: 1, acmVolume: 1, acmNumber: 1, acmArticle: 1, acmYear: 1,
+  acmMonth: 1, acmDOI: 1, acmISBN: 1, acmPrice: 1, acmSubmissionID: 1, copyrightyear: 1, setcopyright: 1, settopmatter: 1,
 };
+/** Named colors `\textcolor` may use; others keep the text's color. */
+const TEXT_COLORS = new Set(["red", "green", "blue", "cyan", "magenta", "yellow", "orange", "purple", "violet", "brown", "teal", "olive", "gray", "darkgray", "lightgray", "pink", "lime"]);
 const REFS = new Set(["ref", "eqref", "cref", "Cref", "autoref", "pageref", "vref", "nameref", "Autoref", "crefrange"]);
 const CITES = new Set(["cite", "citep", "citet", "citealp", "citealt", "citeauthor", "citeyear", "parencite", "textcite", "autocite",
   "footcite", "Citet", "Citep", "fullcite", "supercite"]);
@@ -115,9 +124,15 @@ class TexReader {
   private equation = 0;
   private lastTarget = "";
   private macros: Macros = {};
+  /** The same definitions for running text: argument count and the optional argument's default. */
+  private textMacros: Record<string, { args: number; optional?: string; body: string }> = {};
+  /** How deep in macro expansions this reader is; stops definitions that expand to themselves. */
+  private depth = 0;
   /** Preamble lines that pictures need: libraries, styles, colors, macros. */
   private tikzPreamble = "";
   private meta: Record<string, string> = {};
+  /** Authors in the ACM style, each with an affiliation and an email. */
+  private authors: { name: string; affiliation: string[]; email?: string }[] = [];
   /** Inside pseudocode, where \Return, \Comment and \Call mean something. */
   private pseudocode = false;
   /** A statement's `\\Comment`s, set aside to float at the line's right. */
@@ -200,10 +215,8 @@ class TexReader {
       from = begin.index + begin[0].length;
       const end = src.lastIndexOf("\\end{document}");
       if (end > from) to = end;
-      for (const key of ["title", "author", "date"]) {
-        const at = new RegExp(`\\\\${key}\\s*(?:\\[[^\\]]*\\])?\\s*\\{`).exec(src.slice(0, begin.index));
-        if (at) this.meta[key] = this.text(this.group(at.index + at[0].length - 1));
-      }
+      const maketitle = /\\maketitle(?![A-Za-z])/.exec(src.slice(from));
+      this.frontMatter(maketitle ? from + maketitle.index : begin.index);
       const lines = src.slice(0, begin.index).split("\n").length;
       head = `<p class="tex-preamble">Preamble (lines 1–${lines}) is hidden — see Source.</p>\n`;
     }
@@ -217,14 +230,18 @@ class TexReader {
     });
   }
 
-  /** `\newcommand`, `\renewcommand`, `\def` and `\DeclareMathOperator`, for KaTeX. */
+  /** `\newcommand`, `\renewcommand`, `\def` and `\DeclareMathOperator`, for KaTeX and for running text. */
   private readMacros(src: string) {
-    const pattern = /\\(?:re)?newcommand\*?\s*\{?\s*(\\[A-Za-z@]+)\s*\}?\s*(?:\[(\d)\])?(?:\s*\[[^\]]*\])?\s*\{|\\def\s*(\\[A-Za-z@]+)\s*((?:#\d)*)\s*\{|\\DeclareMathOperator(\*?)\s*\{\s*(\\[A-Za-z@]+)\s*\}\s*\{/g;
+    const pattern = /\\(?:re|provide|new)command\*?\s*\{?\s*(\\[A-Za-z@]+)\s*\}?\s*(?:\[(\d)\])?(?:\s*\[([^\]]*)\])?\s*\{|\\def\s*(\\[A-Za-z@]+)\s*((?:#\d)*)\s*\{|\\DeclareMathOperator(\*?)\s*\{\s*(\\[A-Za-z@]+)\s*\}\s*\{/g;
     for (const match of src.matchAll(pattern)) {
       const body = this.text(this.group(match.index! + match[0].length - 1));
-      if (match[1]) this.macros[match[1]] = body;
-      else if (match[3]) this.macros[match[3]] = body;
-      else if (match[6]) this.macros[match[6]] = `\\operatorname${match[5] ? "*" : ""}{${body}}`;
+      if (match[1]) {
+        this.macros[match[1]] = body;
+        this.textMacros[match[1].slice(1)] = { args: Number(match[2] ?? 0), optional: match[3], body };
+      } else if (match[4]) {
+        this.macros[match[4]] = body;
+        this.textMacros[match[4].slice(1)] = { args: match[5].length / 2, body };
+      } else if (match[7]) this.macros[match[7]] = `\\operatorname${match[6] ? "*" : ""}{${body}}`;
     }
   }
 
@@ -346,15 +363,46 @@ class TexReader {
 
   private romanOf(n = 1) { return ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][n] ?? String(n); }
 
+  /** Title, date and authors from the preamble and the body before `\maketitle` (where ACM puts them). */
+  private frontMatter(end: number) {
+    const src = this.src;
+    const pattern = /\\(title|subtitle|date|author|affiliation|email)\s*(?:\[[^\]]*\])?\s*\{|(?<!\\)%[^\n]*/g;
+    for (let match; (match = pattern.exec(src));) {
+      if (match.index >= end) break;
+      if (!match[1]) continue;
+      const group = this.group(match.index + match[0].length - 1);
+      if (!group) continue;
+      pattern.lastIndex = group.next;
+      const value = this.text(group), key = match[1];
+      if (key === "author") { this.authors.push({ name: value, affiliation: [] }); if (!this.meta.author) this.meta.author = value; }
+      else if (key === "affiliation" && this.authors.length) {
+        const fields = [...value.matchAll(/\\(institution|department|city|state|country)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g)].map(m => m[2]);
+        // An affiliation belongs to every author since the last one that had its own.
+        const place = fields.join(", ") || value, last = this.authors.length - 1;
+        let first = last;
+        while (first > 0 && !this.authors[first - 1].affiliation.length) first--;
+        for (const author of this.authors.slice(this.authors[last].affiliation.length ? last : first)) author.affiliation.push(place);
+      } else if (key === "email" && this.authors.length) this.authors.at(-1)!.email = value;
+      else if (key !== "author" && !this.meta[key]) this.meta[key] = value;
+    }
+  }
+
   private title(start: number, end: number) {
     const part = (key: string, cls: string) => this.meta[key] ? `<div class="${cls}">${this.fragment(this.meta[key])}</div>` : "";
     if (!this.meta.title && !this.meta.author) return "";
-    return `<header${this.attrs(start, end, "tex-title")}>${part("title", "tex-title-main")}${part("author", "tex-title-author")}${part("date", "tex-title-date")}</header>\n`;
+    const cards = this.authors.some(a => a.affiliation.length || a.email);
+    const authors = cards
+      ? `<div class="tex-title-authors">${this.authors.map(a => `<div class="tex-author"><div class="tex-author-name">${this.fragment(a.name)}</div>${a.affiliation.map(f => `<div>${this.fragment(f)}</div>`).join("")}${a.email ? `<div class="tex-author-email">${escapeHtml(a.email)}</div>` : ""}</div>`).join("")}</div>`
+      : part("author", "tex-title-author");
+    return `<header${this.attrs(start, end, "tex-title")}>${part("title", "tex-title-main")}${part("subtitle", "tex-title-sub")}${authors}${part("date", "tex-title-date")}</header>\n`;
   }
 
   /** Inline-render a string that is not at a known offset (title, author). */
   private fragment(text: string) { return new TexReader(text).inlineAll(this); }
-  inlineAll(parent: TexReader) { this.labels = parent.labels; this.macros = parent.macros; return this.inline(0, this.src.length); }
+  inlineAll(parent: TexReader, depth = parent.depth) {
+    this.labels = parent.labels; this.macros = parent.macros; this.textMacros = parent.textMacros; this.depth = depth;
+    return this.inline(0, this.src.length);
+  }
 
   // ── Environments ──
 
@@ -368,7 +416,7 @@ class TexReader {
     if (name in TIKZ_ENVS) return { html: `<div${this.attrs(start, next, "np-tikz-block")}>${this.picture(name, start, next)}</div>\n`, next };
     if (MATH_ENVS.has(name)) return { html: `<div${this.attrs(start, next, "np-math-block")}>${this.displayMath(name, this.src.slice(start, next), body)}</div>\n`, next };
     if (VERBATIM_ENVS.has(name)) {
-      if (name === "comment") return { html: "", next };
+      if (HIDDEN_ENVS.has(name)) return { html: "", next };
       let code = body;
       const options = /^\s*(\[[^\]\n]*\])?\s*(\{[^}\n]*\})?[ \t]*\n?/.exec(code);
       if (options) code = code.slice(options[0].length);
@@ -770,6 +818,49 @@ class TexReader {
       if (src[this.skipSpace(end)] === "[") end = this.group(end, "[")?.next ?? end;
       const content = this.group(end);
       if (content) return { html: this.inline(content.start, content.end), next: content.next };
+    }
+    if (name === "textcolor" || name === "colorbox") {
+      let end = next;
+      if (src[this.skipSpace(end)] === "[") end = this.group(end, "[")?.next ?? end; // [rgb]{…}: a model we don't draw
+      const color = this.group(end), content = color && this.group(color.next);
+      if (content) {
+        const named = /^\s*([a-z]+)\s*$/i.exec(this.text(color!))?.[1].toLowerCase();
+        const style = named && TEXT_COLORS.has(named) ? ` style="--tex-color:${named}"` : "";
+        return { html: `<span class="tex-color"${style}>${this.inline(content.start, content.end)}</span>`, next: content.next };
+      }
+    }
+    // Definitions in the body define; they show nothing.
+    if (/^(?:(?:re)?newcommand\*?|providecommand\*?|DeclareMathOperator\*?|def)$/.test(name)) {
+      let end = next;
+      const named = /^\s*(?:\{\s*\\[A-Za-z@]+\s*\}|\\[A-Za-z@]+)(?:#\d)*/.exec(src.slice(end, end + 80));
+      if (named) {
+        end += named[0].length;
+        while (src[this.skipSpace(end)] === "[") end = this.group(end, "[")?.next ?? end + 1;
+        const body = this.group(end);
+        if (body) return { html: "", next: body.next };
+      }
+    }
+    // The document's own definitions, expanded with their arguments.
+    const macro = Object.hasOwn(this.textMacros, name) ? this.textMacros[name] : undefined;
+    if (macro && this.depth < 8) {
+      const args: string[] = [];
+      let end = next;
+      if (macro.optional !== undefined) {
+        const option = src[this.skipSpace(end)] === "[" ? this.group(end, "[") : null;
+        args.push(option ? this.text(option) : macro.optional);
+        end = option?.next ?? end;
+      }
+      while (args.length < macro.args) {
+        const group = this.group(end);
+        if (!group) break;
+        args.push(this.text(group));
+        end = group.next;
+      }
+      if (args.length === macro.args) {
+        if (!macro.args && src.startsWith("{}", end)) end += 2;
+        const text = macro.body.replace(/#(\d)/g, (whole, n: string) => args[Number(n) - 1] ?? whole);
+        return { html: new TexReader(text).inlineAll(this, this.depth + 1), next: end };
+      }
     }
     // Unknown: show the command and its arguments as source.
     let end = next;

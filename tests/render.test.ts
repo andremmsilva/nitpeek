@@ -266,6 +266,29 @@ const visibleText = (html: string) => html.replace(/<template>[\s\S]*?<\/templat
   check("\\multicolumn spans its columns", html.includes('style="text-align:center">Fit</th>') && !text.includes("multicolumn"));
   const spec = renderTex(String.raw`\begin{tabular}{@{}>{\raggedright}p{0.4\columnwidth}*{2}{r}|c@{}} a & b & c & d \\ \end{tabular}`);
   check("column specs: widths, repeats, alignment", spec.includes('class="tex-table full"') && spec.includes('<td class="wrap" style="--share:0.4">a</td><td style="text-align:right">b</td><td style="text-align:right">c</td><td style="text-align:center">d</td>'));
+  const acm = renderTex(String.raw`\documentclass{acmart}
+\newcommand{\pending}[1]{\textcolor{orange}{[pending: #1]}}
+\newcommand{\pair}[2][x]{(#1, #2)}
+\def\twice#1{#1#1}
+\newcommand{\self}{\self}
+\begin{document}
+\title{Hope}
+\author{Ben}
+\email{ben@a.org}
+\author{Lars}
+\correspondingauthor
+\affiliation{\institution{Thorvald Group}\city{Hekla}\country{Iceland}}
+\renewcommand{\shortauthors}{Ben et al.}
+\received{20 February 2007}
+\begin{CCSXML}<ccs2012><concept_id>1</concept_id></ccs2012>\end{CCSXML}
+\maketitle
+Text \pending{cite Li} \pair{a} \pair[b]{c} \twice{ha} \self.
+\end{document}`);
+  const acmText = visibleText(acm);
+  check("the document's macros expand in text", acm.includes('<span class="tex-color" style="--tex-color:orange">[pending: cite Li]</span>') && acmText.includes("(x, a) (b, c) haha"));
+  check("a macro that expands to itself stops", acmText.includes("\\self"));
+  check("ACM front matter: authors share the next affiliation", /tex-author-name">Ben<\/div><div>Thorvald Group, Hekla, Iceland<\/div><div class="tex-author-email">ben@a\.org/.test(acm) && /tex-author-name">Lars<\/div><div>Thorvald Group/.test(acm));
+  check("metadata stays out of the text", !/renewcommand|received|shortauthors|ccs2012|CCSXML|correspondingauthor/.test(acmText.replace(/Preamble[^\n]*/, "")));
   check("float caption numbered", html.includes('data-kind="Table 1:"'));
   check("verbatim is a numbered code block", html.includes('<span class="cl" data-n="1">beta = np.linalg.solve'));
   // Every mapped block covers source that contains its first word.
