@@ -6,6 +6,7 @@ import { BlobStore } from "../core/snapshot.ts";
 import { TranscriptFeed, mutation } from "../hosts/claude/transcript.ts";
 import { shellPaths } from "../core/shell.ts";
 import { projectDir } from "../hosts/claude/shared.ts";
+import { lastReply } from "../hosts/claude/last-reply.ts";
 
 // Synthetic Claude Code transcript: request boundaries, a local command, a
 // tool-using turn, an Edit without originalFile, and a final text answer.
@@ -112,6 +113,22 @@ check("unrelated tool results are ignored", mutation({ stdout: "hi" }), null);
   check("subagent edit is attributed by time", replay.state.requests.map(r => Object.keys(r.changes).length), [0, 1, 0]);
   delete process.env.CLAUDE_PROJECT_DIR;
   check("the project is where the session started, not the last cd", projectDir({ cwd: join(project, "docs"), transcript_path: session }), project);
+}
+
+// The Ctrl+G editor's last reply: a whole text answer, not narration before a tool call.
+{
+  const a = (id: string, content: any[], extra = {}) => JSON.stringify({ type: "assistant", message: { id, content }, ...extra });
+  const lines = [
+    a("m1", [{ type: "text", text: "Old answer." }]),
+    JSON.stringify({ type: "user", message: { content: "next" } }),
+    a("m2", [{ type: "text", text: "Part one." }]),
+    a("m2", [{ type: "text", text: "Part two." }]),
+    a("m3", [{ type: "text", text: "Checking the file." }]),
+    a("m3", [{ type: "tool_use", id: "t", name: "Read", input: {} }]),
+    a("m4", [{ type: "text", text: "Subagent." }], { isSidechain: true }),
+  ];
+  check("last reply joins its text blocks and skips tool narration", lastReply(lines.join("\n")), "Part one.\n\nPart two.");
+  check("no reply yet", lastReply(lines.slice(4).join("\n")), null);
 }
 
 rmSync(dir, { recursive: true, force: true });

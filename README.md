@@ -155,6 +155,21 @@ Then add the hooks to `~/.claude/settings.json`:
   `/annotate` after a code change. With no tab open it only watches the
   transcript.
 
+### Ctrl+G with the agent's last reply
+
+`bin/nitpeek-editor` opens your prompt in nvim with the agent's last reply
+read-only above it (60%, or `NITPEEK_REPLY_SPLIT_PERCENT`). `:wq` in the
+prompt closes both. It finds the Claude session from the process tree and
+reads the reply from its transcript; under Pi it uses `PI_LAST_RESPONSE`.
+Without a reply it is plain nvim.
+
+```bash
+ln -sf ~/dev/nitpeek/bin/nitpeek-editor ~/.local/bin/nitpeek-editor
+```
+
+Then in `~/.claude/settings.json`: `"env": { "EDITOR": "/Users/you/.local/bin/nitpeek-editor" }`
+(only Claude uses it; your shell keeps its own `$EDITOR`).
+
 ## Data and security
 
 - In Pi the server lives inside the Pi process and closes on quit, `/reload`,

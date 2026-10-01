@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Ctrl+G editor for Claude Code (and Pi): your prompt below, the agent's last
+# reply read-only above. Without a reply it is plain $NITPEEK_NVIM / nvim.
+set -euo pipefail
+nvim="${NITPEEK_NVIM:-nvim}"
+prompt_file="${1:-}"
+[[ $# -eq 1 && -f "$prompt_file" ]] || exec "$nvim" "$@"
+
+here=$(dirname "$(readlink -f "$0")")
+reply="${PI_LAST_RESPONSE:-}"
+if [[ -z "$reply" || ! -f "$reply" ]]; then
+  reply=$("${NITPEEK_BUN:-$HOME/.bun/bin/bun}" "$here/../hosts/claude/last-reply.ts" 2>/dev/null || true)
+fi
+[[ -n "$reply" && -f "$reply" ]] || exec "$nvim" "$prompt_file"
+
+percent="${NITPEEK_REPLY_SPLIT_PERCENT:-${PI_LAST_RESPONSE_SPLIT_PERCENT:-60}}"
+[[ "$percent" =~ ^[0-9]+$ ]] || percent=60
+(( percent < 10 )) && percent=10
+(( percent > 90 )) && percent=90
+
+# Quitting the prompt closes the reply too, so :wq / :q return to the agent.
+export NITPEEK_REPLY="$reply"
+exec "$nvim" "$prompt_file" \
+  -c "execute 'topleft ' . max([1, float2nr(&lines * $percent / 100.0)]) . 'split ' . fnameescape(\$NITPEEK_REPLY)" \
+  -c "setlocal readonly nomodifiable nobuflisted bufhidden=wipe filetype=markdown wrap linebreak" \
+  -c "wincmd j" \
+  -c "autocmd QuitPre <buffer> silent! only"
