@@ -192,8 +192,11 @@ const MAX_DIFF_LINES = 6000;
 
 /** Changed character ranges between a removed and an added line. */
 function wordRanges(before: string, after: string): { old: [number, number][]; new: [number, number][] } | null {
-  if (before.length + after.length > 2000) return null;
-  const parts = diffWordsWithSpace(before, after);
+  // Long prose lines (a LaTeX or Markdown paragraph) are fine when little
+  // changed; the edit cap gives up early on rewrites, which get no words anyway.
+  if (before.length + after.length > 100_000) return null;
+  const parts = diffWordsWithSpace(before, after, { maxEditLength: 300 });
+  if (!parts) return null;
   const old: [number, number][] = [], neu: [number, number][] = [];
   let o = 0, n = 0, common = 0;
   for (const part of parts) {

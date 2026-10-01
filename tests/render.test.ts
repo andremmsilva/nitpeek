@@ -214,6 +214,16 @@ const matrix = [
   check("diff counts", diff.added === 2 && diff.removed === 1);
   check("line numbers per side", lines[1].kind === "-" && lines[1].old === 2 && lines[2].kind === "+" && lines[2].new === 2 && lines[4].new === 4);
   check("word-level ranges for paired lines", JSON.stringify(lines[1].words) === "[[14,15]]" && JSON.stringify(lines[2].words) === "[[14,15]]");
+  {
+    const paragraph = "A Saga runs a business operation across microservices as a sequence of local transactions. ".repeat(16);
+    const edited = paragraph.replace("sequence", "series") + "Seeded defects are revealed.";
+    const long = buildDiff(paragraph + "\n", edited + "\n", null).hunks[0].lines;
+    check("a long paragraph line still gets word ranges", paragraph.length > 1400 && !!long[0].words?.length && !!long[1].words?.length);
+    const words = (n: number, seed: number) => Array.from({ length: n }, (_, i) => ((i * 7919 + seed) % 1000).toString(36)).join(" ");
+    const started = Date.now();
+    const rewrite = buildDiff(words(8000, 1) + "\n", words(8000, 2) + "\n", null).hunks[0].lines;
+    check("a long rewrite gives up on word ranges quickly", rewrite.every(l => !l.words) && Date.now() - started < 500, `${Date.now() - started}ms`);
+  }
   check("rewritten lines skip word ranges", buildDiff("alpha beta\n", "zzz yyy xxx\n", null).hunks[0].lines.every(l => !l.words));
   check("diff lines are syntax highlighted", lines[1].html.includes("hljs-keyword"));
   check("created file diff", buildDiff("", "x\ny\n", null).added === 2);
