@@ -203,4 +203,4 @@ bun run test       # every suite, including a headless-Chrome UI test (skipped w
 `core/` holds the store, feedback format, rendering and server. `ui/` is a
 Preact app. `hosts/pi` and `hosts/claude` connect them to each agent.
 
-nitpeek started as a fork of a Pi annotation extension and has since been rewritten.
+nitpeek started as a fork of [pi-annotate](https://github.com/nicobailon/pi-annotate) by Nico Bailon and has since been rewritten.

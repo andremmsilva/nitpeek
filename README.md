@@ -49,4 +49,8 @@ bun run demo       # a demo session at a local URL
 bun run test       # all suites, including a headless-Chrome UI test
 ```
 
-`core/` has the store, feedback format, rendering and server. `ui/` is a Preact app. `hosts/` connects it to each agent. Started as a fork of a Pi annotation extension and since rewritten.
+`core/` has the store, feedback format, rendering and server. `ui/` is a Preact app. `hosts/` connects it to each agent. Started as a fork of [pi-annotate](https://github.com/nicobailon/pi-annotate) by Nico Bailon and since rewritten.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

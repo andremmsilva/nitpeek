@@ -2,6 +2,7 @@
   "name": "nitpeek",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "description": "Review what your coding agent did — highlight, note, and hand the notes back (Pi, Claude Code)",
   "type": "module",
   "keywords": [
